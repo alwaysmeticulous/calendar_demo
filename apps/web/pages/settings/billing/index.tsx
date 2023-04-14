@@ -48,13 +48,13 @@ const BillingView = () => {
         <CtaRow
           title={t("billing_manage_details_title")}
           description={t("billing_manage_details_description")}>
-          <Button color="primary" href={billingHref} target="_blank" EndIcon={ExternalLink}>
+          <Button color="secondary" href={billingHref} target="_blank" EndIcon={ExternalLink}>
             {t("billing_portal")}
           </Button>
         </CtaRow>
 
         <CtaRow title={t("billing_help_title")} description={t("billing_help_description")}>
-          <Button color="secondary" onClick={onContactSupportClick}>
+          <Button color="primary" onClick={onContactSupportClick}>
             {t("contact_support")}
           </Button>
         </CtaRow>
