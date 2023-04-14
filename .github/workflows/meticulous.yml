@@ -58,7 +58,6 @@ jobs:
           yarn build
 
       - name: Serve project
-				# Note the sleep is required to ensure your app is readily being served by the time the Meticulous tests start
         run: |
           yarn start &
           sleep 5
