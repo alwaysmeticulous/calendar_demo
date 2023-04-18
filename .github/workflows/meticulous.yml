@@ -30,6 +30,14 @@ jobs:
   test:
     name: Report diffs
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:12.1
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: calendso
+        ports:
+          - 5432:5432
 
     steps:
       - name: Checkout repository
@@ -58,6 +66,7 @@ jobs:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
           CALENDSO_ENCRYPTION_KEY: ${{ secrets.CALENDSO_ENCRYPTION_KEY }}
           NEXTAUTH_URL: 'http://localhost:3000/'
+          DATABASE_URL: 'postgresql://postgres:@localhost:5432/calendso'
         run: |
           yarn build
 
