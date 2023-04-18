@@ -6,6 +6,8 @@ const os = require("os");
 const { withAxiom } = require("next-axiom");
 const { i18n } = require("./next-i18next.config");
 
+console.log("log env");
+console.log(process.env);
 if (!process.env.NEXTAUTH_SECRET) throw new Error("Please set NEXTAUTH_SECRET");
 if (!process.env.CALENDSO_ENCRYPTION_KEY) throw new Error("Please set CALENDSO_ENCRYPTION_KEY");
 
