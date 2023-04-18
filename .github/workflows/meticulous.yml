@@ -54,6 +54,9 @@ jobs:
           yarn
 
       - name: Build project
+        env:
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+          CALENDSO_ENCRYPTION_KEY: ${{ secrets.CALENDSO_ENCRYPTION_KEY }}
         run: |
           yarn build
 
