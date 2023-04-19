@@ -58,6 +58,7 @@ jobs:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
           CALENDSO_ENCRYPTION_KEY: ${{ secrets.CALENDSO_ENCRYPTION_KEY }}
           NEXTAUTH_URL: 'http://localhost:3000/'
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           yarn build
 
