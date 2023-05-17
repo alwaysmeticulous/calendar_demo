@@ -78,10 +78,10 @@ class MyDocument extends Document<Props> {
           <meta name="msapplication-TileColor" content="#ff0000" />
           <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F9FAFC" />
           <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1F1F1F" />
-          {!IS_PRODUCTION && process.env.VERCEL_ENV === "preview" && (
+          {process.env.NEXT_PUBLIC_ENABLE_METICULOUS==="1" && (
             // eslint-disable-next-line @next/next/no-sync-scripts
             <script
-              data-project-id="KjpMrKTnXquJVKfeqmjdTffVPf1a6Unw2LZ58iE4"
+              data-project-id="Uysg3yxOBXBaTw71L7qC2VphddDrHALASFyqI9cO"
               src="https://snippet.meticulous.ai/v1/stagingMeticulousSnippet.js"
             />
           )}
