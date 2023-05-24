@@ -77,7 +77,7 @@ export const trpc: CreateTRPCNext<AppRouter, NextPageContext, null> = createTRPC
         }),
         splitLink({
           // check for context property `skipBatch`
-          condition: (op) => !!op.context.skipBatch,
+          condition: (op) => !!op.context.skipBatch || !!process.env.NEXT_PUBLIC_SKIP_BATCH,
           // when condition is true, use normal request
           true: (runtime) => {
             const links = Object.fromEntries(
