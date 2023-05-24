@@ -48,6 +48,7 @@ class MyDocument extends Document<Props> {
           <meta name="msapplication-TileColor" content="#ff0000" />
           <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f9fafb" />
           <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1C1C1C" />
+          {/* Meticulous recorder snippet */}
           {process.env.NEXT_PUBLIC_ENABLE_METICULOUS==="1" && (
             // eslint-disable-next-line @next/next/no-sync-scripts
             <script
