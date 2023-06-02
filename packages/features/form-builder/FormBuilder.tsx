@@ -405,7 +405,7 @@ export const FormBuilder = function FormBuilder({
             color="minimal"
             data-testid="add-field"
             onClick={addField}
-            className="mt-4"
+            className="mt-8"
             StartIcon={Plus}>
             {addFieldLabel}
           </Button>
