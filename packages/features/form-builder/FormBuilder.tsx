@@ -321,7 +321,8 @@ export const FormBuilder = function FormBuilder({
                     {index >= 1 && (
                       <button
                         type="button"
-                        className="bg-default text-muted hover:text-emphasis disabled:hover:text-muted border-default hover:border-emphasis invisible absolute -left-[12px] -mt-4 mb-4 -ml-4 hidden h-6 w-6 scale-0 items-center justify-center rounded-md border p-1 transition-all hover:shadow disabled:hover:border-inherit disabled:hover:shadow-none group-hover:visible group-hover:scale-100 sm:ml-0 sm:flex"
+                        className="bg-default text-muted hover:text-emphasis disabled:hover:text-muted border-default hover:border-emphasis invisible absolute -left-[12px] -
+                                   mb-4 -ml-4 hidden h-6 w-6 scale-0 items-center justify-center rounded-md border p-1 transition-all hover:shadow disabled:hover:border-inherit disabled:hover:shadow-none group-hover:visible group-hover:scale-100 sm:ml-0 sm:flex"
                         onClick={() => swap(index, index - 1)}>
                         <ArrowUp className="h-5 w-5" />
                       </button>
@@ -405,7 +406,7 @@ export const FormBuilder = function FormBuilder({
             color="minimal"
             data-testid="add-field"
             onClick={addField}
-            className="mt-4"
+            className="mt-8"
             StartIcon={Plus}>
             {addFieldLabel}
           </Button>
