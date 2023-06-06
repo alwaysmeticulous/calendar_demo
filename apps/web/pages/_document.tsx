@@ -48,14 +48,6 @@ class MyDocument extends Document<Props> {
           <meta name="msapplication-TileColor" content="#ff0000" />
           <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f9fafb" />
           <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1C1C1C" />
-          {/* Meticulous recorder snippet */}
-          {process.env.NEXT_PUBLIC_ENABLE_METICULOUS==="1" && (
-            // eslint-disable-next-line @next/next/no-sync-scripts
-            <script
-              data-project-id="Uysg3yxOBXBaTw71L7qC2VphddDrHALASFyqI9cO"
-              src="https://snippet.meticulous.ai/v1/stagingMeticulousSnippet.js"
-            />
-          )}
         </Head>
 
         <body
