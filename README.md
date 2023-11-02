@@ -11,7 +11,7 @@
     <br />
     <a href="https://cal.com"><strong>Learn more »</strong></a>
     <br />
-    <br />
+    <br />   
     <a href="https://cal.com/slack">Slack</a>
     ·
     <a href="https://cal.com">Website</a>
