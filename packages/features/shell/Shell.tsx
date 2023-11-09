@@ -750,7 +750,7 @@ function SideBar() {
         <div className="flex h-full flex-col justify-between py-3 lg:pt-6 ">
           <header className="items-center justify-between md:hidden lg:flex">
             <Link href="/event-types" className="px-2">
-              <Logo small />
+              <Logo small /> hi there
             </Link>
             <div className="flex space-x-2 rtl:space-x-reverse">
               <button
