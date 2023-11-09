@@ -1,3 +1,4 @@
+import type { GetBookingType } from "@calcom/features/bookings/lib/get-booking";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { trpc } from "@calcom/trpc/react";
 import { HeadSeo } from "@calcom/ui";
@@ -7,13 +8,30 @@ interface BookerSeoProps {
   eventSlug: string;
   rescheduleUid: string | undefined;
   hideBranding?: boolean;
+  isSEOIndexable?: boolean;
+  isTeamEvent?: boolean;
+  entity: {
+    orgSlug?: string | null;
+    teamSlug?: string | null;
+    name?: string | null;
+  };
+  bookingData?: GetBookingType | null;
 }
 
 export const BookerSeo = (props: BookerSeoProps) => {
-  const { eventSlug, username, rescheduleUid, hideBranding } = props;
+  const {
+    eventSlug,
+    username,
+    rescheduleUid,
+    hideBranding,
+    isTeamEvent,
+    entity,
+    isSEOIndexable,
+    bookingData,
+  } = props;
   const { t } = useLocale();
   const { data: event } = trpc.viewer.public.event.useQuery(
-    { username, eventSlug },
+    { username, eventSlug, isTeamEvent, org: entity.orgSlug ?? null },
     { refetchOnWindowFocus: false }
   );
 
@@ -22,7 +40,7 @@ export const BookerSeo = (props: BookerSeoProps) => {
   const title = event?.title ?? "";
   return (
     <HeadSeo
-      title={`${rescheduleUid ? t("reschedule") : ""} ${title} | ${profileName}`}
+      title={`${rescheduleUid && !!bookingData ? t("reschedule") : ""} ${title} | ${profileName}`}
       description={`${rescheduleUid ? t("reschedule") : ""} ${title}`}
       meeting={{
         title: title,
@@ -35,8 +53,8 @@ export const BookerSeo = (props: BookerSeoProps) => {
         ],
       }}
       nextSeoProps={{
-        nofollow: event?.hidden,
-        noindex: event?.hidden,
+        nofollow: event?.hidden || !isSEOIndexable,
+        noindex: event?.hidden || !isSEOIndexable,
       }}
       isBrandingHidden={hideBranding}
     />

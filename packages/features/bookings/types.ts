@@ -7,8 +7,9 @@ import type { AppsStatus } from "@calcom/types/Calendar";
 export type PublicEvent = NonNullable<RouterOutputs["viewer"]["public"]["event"]>;
 export type ValidationErrors<T extends object> = { key: FieldPath<T>; error: ErrorOption }[];
 
+export type EventPrice = { currency: string; price: number; displayAlternateSymbol?: boolean };
+
 export enum EventDetailBlocks {
-  DESCRIPTION,
   // Includes duration select when event has multiple durations.
   DURATION,
   LOCATION,

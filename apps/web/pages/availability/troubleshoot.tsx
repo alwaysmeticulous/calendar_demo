@@ -26,7 +26,7 @@ const AvailabilityView = ({ user }: { user: User }) => {
 
   const { data, isLoading } = trpc.viewer.availability.user.useQuery(
     {
-      username: user.username!,
+      username: user.username || "",
       dateFrom: selectedDate.startOf("day").utc().format(),
       dateTo: selectedDate.endOf("day").utc().format(),
       withSource: true,
@@ -53,7 +53,7 @@ const AvailabilityView = ({ user }: { user: User }) => {
         {t("overview_of_day")}{" "}
         <input
           type="date"
-          className="inline h-8 border-none p-0"
+          className="inline h-8 border-none bg-inherit p-0"
           defaultValue={formattedSelectedDate}
           onChange={(e) => {
             if (e.target.value) setSelectedDate(e.target.value);
@@ -133,7 +133,7 @@ Troubleshoot.PageWrapper = PageWrapper;
 function convertMinsToHrsMins(mins: number) {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  const hs = h < 10 ? "0" + h : h;
-  const ms = m < 10 ? "0" + m : m;
+  const hs = h < 10 ? `0${h}` : h;
+  const ms = m < 10 ? `0${m}` : m;
   return `${hs}:${ms}`;
 }

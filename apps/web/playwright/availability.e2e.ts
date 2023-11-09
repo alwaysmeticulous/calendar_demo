@@ -9,7 +9,7 @@ test.describe.configure({ mode: "parallel" });
 test.describe("Availablity tests", () => {
   test.beforeEach(async ({ page, users }) => {
     const user = await users.create();
-    await user.login();
+    await user.apiLogin();
     await page.goto("/availability");
     // We wait until loading is finished
     await page.waitForSelector('[data-testid="schedules"]');
@@ -28,6 +28,7 @@ test.describe("Availablity tests", () => {
       await page.locator('[data-testid="day"][data-disabled="false"]').nth(0).click();
       await page.locator('[data-testid="date-override-mark-unavailable"]').click();
       await page.locator('[data-testid="add-override-submit-btn"]').click();
+      await page.locator('[data-testid="dialog-rejection"]').click();
       await expect(page.locator('[data-testid="date-overrides-list"] > li')).toHaveCount(1);
       await page.locator('[form="availability-form"][type="submit"]').click();
     });

@@ -6,7 +6,8 @@ import { components } from "react-select";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { DestinationCalendar } from "@calcom/prisma/client";
 import { trpc } from "@calcom/trpc/react";
-import { Select } from "@calcom/ui";
+import { Select, Badge } from "@calcom/ui";
+import { Check } from "@calcom/ui/components/icon";
 
 interface Props {
   onChange: (value: { externalId: string; integration: string }) => void;
@@ -16,6 +17,7 @@ interface Props {
   destinationCalendar?: DestinationCalendar | null;
   value: string | undefined;
   maxWidth?: number;
+  hideAdvancedText?: boolean;
 }
 
 interface Option {
@@ -37,7 +39,10 @@ const OptionComponent = ({ ...props }: OptionProps<Option>) => {
   const { label } = props.data;
   return (
     <components.Option {...props}>
-      <span>{label}</span>
+      <div className="flex">
+        <span className="mr-auto">{label}</span>
+        {props.isSelected && <Check className="ml-2 h-4 w-4" />}
+      </div>
     </components.Option>
   );
 };
@@ -47,6 +52,7 @@ const DestinationCalendarSelector = ({
   isLoading,
   value,
   hidePlaceholder,
+  hideAdvancedText,
   maxWidth,
   destinationCalendar,
 }: Props): JSX.Element | null => {
@@ -66,7 +72,7 @@ const DestinationCalendarSelector = ({
         width: "100%",
         display: "flex",
         ":before": {
-          content: `'${t("select_destination_calendar")}:'`,
+          content: `'${t("create_events_on")}:'`,
           display: "block",
           marginRight: 8,
         },
@@ -121,17 +127,18 @@ const DestinationCalendarSelector = ({
   const queryDestinationCalendar = query.data.destinationCalendar;
 
   return (
-    <div className="relative" title={`${t("select_destination_calendar")}: ${selectedOption?.label || ""}`}>
+    <div className="relative" title={`${t("create_events_on")}: ${selectedOption?.label || ""}`}>
+      <p className="text-sm font-medium leading-none">{t("add_events_to")}</p>
       <Select
         name="primarySelectedCalendar"
         placeholder={
           !hidePlaceholder ? (
-            `${t("select_destination_calendar")}`
+            `${t("create_events_on")}`
           ) : (
             <span className="text-default min-w-0 overflow-hidden truncate whitespace-nowrap">
-              {t("default_calendar_selected")}{" "}
+              <Badge variant="blue">Default</Badge>{" "}
               {queryDestinationCalendar.name &&
-                `| ${queryDestinationCalendar.name} (${queryDestinationCalendar?.integrationTitle} - ${queryDestinationCalendar.primaryEmail})`}
+                `${queryDestinationCalendar.name} (${queryDestinationCalendar?.integrationTitle} - ${queryDestinationCalendar.primaryEmail})`}
             </span>
           )
         }
@@ -151,7 +158,7 @@ const DestinationCalendarSelector = ({
         }}
         isSearchable={false}
         className={classNames(
-          "border-default mt-1 mb-2 block w-full min-w-0 flex-1 rounded-none rounded-r-sm text-sm"
+          "border-default my-2 block w-full min-w-0 flex-1 rounded-none rounded-r-sm text-sm"
         )}
         onChange={(newValue) => {
           setSelectedOption(newValue);
@@ -172,6 +179,9 @@ const DestinationCalendarSelector = ({
         components={{ SingleValue: SingleValueComponent, Option: OptionComponent }}
         isMulti={false}
       />
+      {hideAdvancedText ? null : (
+        <p className="text-sm leading-tight">{t("you_can_override_calendar_in_advanced_tab")}</p>
+      )}
     </div>
   );
 };

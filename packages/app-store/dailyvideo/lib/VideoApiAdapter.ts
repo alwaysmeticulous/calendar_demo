@@ -30,7 +30,6 @@ const dailyReturnTypeSchema = z.object({
     enable_chat: z.boolean(),
     enable_knocking: z.boolean(),
     enable_prejoin_ui: z.boolean(),
-    enable_new_call_ui: z.boolean(),
   }),
 });
 
@@ -57,12 +56,14 @@ const meetingTokenSchema = z.object({
 
 /** @deprecated use metadata on index file */
 export const FAKE_DAILY_CREDENTIAL: CredentialPayload & { invalid: boolean } = {
-  id: +new Date().getTime(),
+  id: 0,
   type: "daily_video",
   key: { apikey: process.env.DAILY_API_KEY },
-  userId: +new Date().getTime(),
+  userId: 0,
+  user: { email: "" },
   appId: "daily-video",
   invalid: false,
+  teamId: null,
 };
 
 export const fetcher = async (endpoint: string, init?: RequestInit | undefined) => {
@@ -70,7 +71,7 @@ export const fetcher = async (endpoint: string, init?: RequestInit | undefined) 
   return fetch(`https://api.daily.co/v1${endpoint}`, {
     method: "GET",
     headers: {
-      Authorization: "Bearer " + api_key,
+      Authorization: `Bearer ${api_key}`,
       "Content-Type": "application/json",
       ...init?.headers,
     },
@@ -78,7 +79,7 @@ export const fetcher = async (endpoint: string, init?: RequestInit | undefined) 
   }).then(handleErrorsJson);
 };
 
-function postToDailyAPI(endpoint: string, body: Record<string, any>) {
+function postToDailyAPI(endpoint: string, body: Record<string, unknown>) {
   return fetcher(endpoint, {
     method: "POST",
     body: JSON.stringify(body),
@@ -123,7 +124,6 @@ const DailyVideoApiAdapter = (): VideoApiAdapter => {
       return {
         privacy: "public",
         properties: {
-          enable_new_call_ui: true,
           enable_prejoin_ui: true,
           enable_knocking: true,
           enable_screenshare: true,
@@ -136,7 +136,6 @@ const DailyVideoApiAdapter = (): VideoApiAdapter => {
     return {
       privacy: "public",
       properties: {
-        enable_new_call_ui: true,
         enable_prejoin_ui: true,
         enable_knocking: true,
         enable_screenshare: true,

@@ -1,5 +1,4 @@
-import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { useState } from "react";
+import { useState, memo } from "react";
 
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { localStorage } from "@calcom/lib/webstorage";
@@ -94,13 +93,19 @@ export const tips = [
     description: "Get a better understanding of your business",
     href: "https://go.cal.com/insights",
   },
+  {
+    id: 12,
+    thumbnailUrl: "https://ph-files.imgix.net/46d376e1-f897-40fc-9921-c64de971ee13.jpeg?auto=compress&codec=mozjpeg&cs=strip&auto=format&w=390&h=220&fit=max&dpr=2",
+    mediaLink: "https://go.cal.com/cal-ai",
+    title: "Cal.ai",
+    description: "Your personal AI scheduling assistant",
+    href: "https://go.cal.com/cal-ai",
+  }
 ];
 
 const reversedTips = tips.slice(0).reverse();
 
-export default function Tips() {
-  const [animationRef] = useAutoAnimate<HTMLDivElement>();
-
+function Tips() {
   const { t } = useLocale();
 
   const [list, setList] = useState<typeof tips>(() => {
@@ -138,7 +143,7 @@ export default function Tips() {
   const baseOriginalList = list.slice(0).reverse();
   return (
     <div
-      className="hidden pt-8 pb-4 lg:grid"
+      className="hidden pb-4 pt-8 lg:grid"
       /* ref={animationRef} */
       style={{
         gridTemplateColumns: "1fr",
@@ -175,3 +180,5 @@ export default function Tips() {
     </div>
   );
 }
+
+export default memo(Tips);

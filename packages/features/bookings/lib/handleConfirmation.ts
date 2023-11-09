@@ -1,19 +1,21 @@
-import type { Prisma, PrismaClient, Workflow, WorkflowsOnEventTypes, WorkflowStep } from "@prisma/client";
+import type { Prisma, Workflow, WorkflowsOnEventTypes, WorkflowStep } from "@prisma/client";
 
-import { scheduleTrigger } from "@calcom/app-store/zapier/lib/nodeScheduler";
 import type { EventManagerUser } from "@calcom/core/EventManager";
 import EventManager from "@calcom/core/EventManager";
 import { sendScheduledEmails } from "@calcom/emails";
 import { scheduleWorkflowReminders } from "@calcom/features/ee/workflows/lib/reminders/reminderScheduler";
 import getWebhooks from "@calcom/features/webhooks/lib/getWebhooks";
+import { scheduleTrigger } from "@calcom/features/webhooks/lib/scheduleTrigger";
 import type { EventTypeInfo } from "@calcom/features/webhooks/lib/sendPayload";
 import sendPayload from "@calcom/features/webhooks/lib/sendPayload";
+import { getTeamIdFromEventType } from "@calcom/lib/getTeamIdFromEventType";
 import logger from "@calcom/lib/logger";
+import type { PrismaClient } from "@calcom/prisma";
 import { BookingStatus, WebhookTriggerEvents } from "@calcom/prisma/enums";
 import { bookingMetadataSchema } from "@calcom/prisma/zod-utils";
 import type { AdditionalInformation, CalendarEvent } from "@calcom/types/Calendar";
 
-const log = logger.getChildLogger({ prefix: ["[handleConfirmation] book:user"] });
+const log = logger.getSubLogger({ prefix: ["[handleConfirmation] book:user"] });
 
 export async function handleConfirmation(args: {
   user: EventManagerUser & { username: string | null };
@@ -30,6 +32,8 @@ export async function handleConfirmation(args: {
       price: number;
       requiresConfirmation: boolean;
       title: string;
+      teamId?: number | null;
+      parentId?: number | null;
     } | null;
     eventTypeId: number | null;
     smsReminderNumber: string | null;
@@ -48,7 +52,7 @@ export async function handleConfirmation(args: {
       message: "Booking failed",
     };
 
-    log.error(`Booking ${user.username} failed`, error, results);
+    log.error(`Booking ${user.username} failed`, JSON.stringify({ error, results }));
   } else {
     const metadata: AdditionalInformation = {};
 
@@ -226,6 +230,7 @@ export async function handleConfirmation(args: {
           },
           isFirstRecurringEvent: isFirstBooking,
           hideBranding: !!updatedBookings[index].eventType?.owner?.hideBranding,
+          eventTypeRequiresConfirmation: true,
         });
       }
     }
@@ -235,16 +240,26 @@ export async function handleConfirmation(args: {
   }
 
   try {
-    // schedule job for zapier trigger 'when meeting ends'
+    const teamId = await getTeamIdFromEventType({
+      eventType: {
+        team: { id: booking.eventType?.teamId ?? null },
+        parentId: booking?.eventType?.parentId ?? null,
+      },
+    });
+
+    const triggerForUser = !teamId || (teamId && booking.eventType?.parentId);
+
     const subscribersBookingCreated = await getWebhooks({
-      userId: booking.userId || 0,
-      eventTypeId: booking.eventTypeId || 0,
+      userId: triggerForUser ? booking.userId : null,
+      eventTypeId: booking.eventTypeId,
       triggerEvent: WebhookTriggerEvents.BOOKING_CREATED,
+      teamId,
     });
     const subscribersMeetingEnded = await getWebhooks({
-      userId: booking.userId || 0,
-      eventTypeId: booking.eventTypeId || 0,
+      userId: triggerForUser ? booking.userId : null,
+      eventTypeId: booking.eventTypeId,
       triggerEvent: WebhookTriggerEvents.MEETING_ENDED,
+      teamId: booking.eventType?.teamId,
     });
 
     subscribersMeetingEnded.forEach((subscriber) => {
@@ -277,7 +292,67 @@ export async function handleConfirmation(args: {
         );
       })
     );
+
     await Promise.all(promises);
+
+    if (paid) {
+      let paymentExternalId: string | undefined;
+      const subscriberMeetingPaid = await getWebhooks({
+        userId: triggerForUser ? booking.userId : null,
+        eventTypeId: booking.eventTypeId,
+        triggerEvent: WebhookTriggerEvents.BOOKING_PAID,
+        teamId: booking.eventType?.teamId,
+      });
+      const bookingWithPayment = await prisma.booking.findFirst({
+        where: {
+          id: bookingId,
+        },
+        select: {
+          payment: {
+            select: {
+              id: true,
+              success: true,
+              externalId: true,
+            },
+          },
+        },
+      });
+      const successPayment = bookingWithPayment?.payment?.find((item) => item.success);
+      if (successPayment) {
+        paymentExternalId = successPayment.externalId;
+      }
+
+      const paymentMetadata = {
+        identifier: "cal.com",
+        bookingId,
+        eventTypeId: booking.eventType?.id,
+        bookerEmail: evt.attendees[0].email,
+        eventTitle: booking.eventType?.title,
+        externalId: paymentExternalId,
+      };
+      const bookingPaidSubscribers = subscriberMeetingPaid.map((sub) =>
+        sendPayload(sub.secret, WebhookTriggerEvents.BOOKING_PAID, new Date().toISOString(), sub, {
+          ...evt,
+          ...eventTypeInfo,
+          bookingId,
+          eventTypeId: booking.eventType?.id,
+          status: "ACCEPTED",
+          smsReminderNumber: booking.smsReminderNumber || undefined,
+          paymentId: bookingWithPayment?.payment?.[0].id,
+          metadata: {
+            ...(paid ? paymentMetadata : {}),
+          },
+        }).catch((e) => {
+          console.error(
+            `Error executing webhook for event: ${WebhookTriggerEvents.BOOKING_PAID}, URL: ${sub.subscriberUrl}`,
+            e
+          );
+        })
+      );
+
+      // I don't need to await for this
+      Promise.all(bookingPaidSubscribers);
+    }
   } catch (error) {
     // Silently fail
     console.error(error);

@@ -1,30 +1,34 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import type { BaseSyntheticEvent } from "react";
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { ErrorCode } from "@calcom/features/auth/lib/ErrorCode";
+import OrganizationMemberAvatar from "@calcom/features/ee/organizations/components/OrganizationMemberAvatar";
+import SectionBottomActions from "@calcom/features/settings/SectionBottomActions";
 import { getLayout } from "@calcom/features/settings/layouts/SettingsLayout";
-import { FULL_NAME_LENGTH_MAX_LIMIT } from "@calcom/lib/constants";
-import { APP_NAME } from "@calcom/lib/constants";
+import { APP_NAME, FULL_NAME_LENGTH_MAX_LIMIT } from "@calcom/lib/constants";
+import { AVATAR_FALLBACK } from "@calcom/lib/constants";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { md } from "@calcom/lib/markdownIt";
 import turndown from "@calcom/lib/turndownService";
 import { IdentityProvider } from "@calcom/prisma/enums";
 import type { TRPCClientErrorLike } from "@calcom/trpc/client";
 import { trpc } from "@calcom/trpc/react";
+import type { RouterOutputs } from "@calcom/trpc/react";
 import type { AppRouter } from "@calcom/trpc/server/routers/_app";
+import type { Ensure } from "@calcom/types/utils";
 import {
   Alert,
-  Avatar,
   Button,
   Dialog,
   DialogClose,
   DialogContent,
   DialogFooter,
   DialogTrigger,
+  Editor,
   Form,
   ImageUploader,
   Label,
@@ -36,7 +40,6 @@ import {
   SkeletonContainer,
   SkeletonText,
   TextField,
-  Editor,
 } from "@calcom/ui";
 import { AlertTriangle, Trash2 } from "@calcom/ui/components/icon";
 
@@ -47,10 +50,10 @@ import { UsernameAvailabilityField } from "@components/ui/UsernameAvailability";
 const SkeletonLoader = ({ title, description }: { title: string; description: string }) => {
   return (
     <SkeletonContainer>
-      <Meta title={title} description={description} />
-      <div className="mt-6 mb-8 space-y-6">
+      <Meta title={title} description={description} borderInShellHeader={true} />
+      <div className="border-subtle space-y-6 rounded-b-lg border border-t-0 px-4 py-8">
         <div className="flex items-center">
-          <SkeletonAvatar className="h-12 w-12 px-4" />
+          <SkeletonAvatar className="me-4 mt-0 h-16 w-16 px-4" />
           <SkeletonButton className="h-6 w-32 rounded-md p-5" />
         </div>
         <SkeletonText className="h-8 w-full" />
@@ -69,22 +72,53 @@ interface DeleteAccountValues {
 
 type FormValues = {
   username: string;
-  avatar: string;
+  avatar: string | null;
   name: string;
   email: string;
   bio: string;
 };
 
+const checkIfItFallbackImage = (fetchedImgSrc?: string) => {
+  return !fetchedImgSrc || fetchedImgSrc.endsWith(AVATAR_FALLBACK);
+};
+
 const ProfileView = () => {
   const { t } = useLocale();
   const utils = trpc.useContext();
-  const { data: user, isLoading } = trpc.viewer.me.useQuery();
-  const { data: avatar, isLoading: isLoadingAvatar } = trpc.viewer.avatar.useQuery();
-  const mutation = trpc.viewer.updateProfile.useMutation({
-    onSuccess: () => {
+  const { update } = useSession();
+
+  const [fetchedImgSrc, setFetchedImgSrc] = useState<string | undefined>(undefined);
+
+  const { data: user, isLoading } = trpc.viewer.me.useQuery(undefined, {
+    onSuccess: async (userData) => {
+      try {
+        if (!userData.organization) {
+          const res = await fetch(userData.avatar);
+          if (res.url) setFetchedImgSrc(res.url);
+        } else {
+          setFetchedImgSrc("");
+        }
+      } catch (err) {
+        setFetchedImgSrc("");
+      }
+    },
+  });
+  const updateProfileMutation = trpc.viewer.updateProfile.useMutation({
+    onSuccess: async (res) => {
+      await update(res);
       showToast(t("settings_updated_successfully"), "success");
-      utils.viewer.me.invalidate();
-      utils.viewer.avatar.invalidate();
+
+      // signout user only in case of password reset
+      if (res.signOutUser && tempFormValues && res.passwordReset) {
+        showToast(t("password_reset_email", { email: tempFormValues.email }), "success");
+        await signOut({ callbackUrl: "/auth/logout?passReset=true" });
+      } else {
+        utils.viewer.me.invalidate();
+        utils.viewer.avatar.invalidate();
+        utils.viewer.shouldVerifyEmail.invalidate();
+      }
+
+      setConfirmAuthEmailChangeWarningDialogOpen(false);
       setTempFormValues(null);
     },
     onError: () => {
@@ -95,6 +129,8 @@ const ProfileView = () => {
   const [confirmPasswordOpen, setConfirmPasswordOpen] = useState(false);
   const [tempFormValues, setTempFormValues] = useState<FormValues | null>(null);
   const [confirmPasswordErrorMessage, setConfirmPasswordDeleteErrorMessage] = useState("");
+  const [confirmAuthEmailChangeWarningDialogOpen, setConfirmAuthEmailChangeWarningDialogOpen] =
+    useState(false);
 
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [hasDeleteErrors, setHasDeleteErrors] = useState(false);
@@ -115,7 +151,7 @@ const ProfileView = () => {
 
   const confirmPasswordMutation = trpc.viewer.auth.verifyPassword.useMutation({
     onSuccess() {
-      if (tempFormValues) mutation.mutate(tempFormValues);
+      if (tempFormValues) updateProfileMutation.mutate(tempFormValues);
       setConfirmPasswordOpen(false);
     },
     onError() {
@@ -142,7 +178,7 @@ const ProfileView = () => {
     },
   });
 
-  const isCALIdentityProviver = user?.identityProvider === IdentityProvider.CAL;
+  const isCALIdentityProvider = user?.identityProvider === IdentityProvider.CAL;
 
   const onConfirmPassword = (e: Event | React.MouseEvent<HTMLElement, MouseEvent>) => {
     e.preventDefault();
@@ -151,9 +187,15 @@ const ProfileView = () => {
     confirmPasswordMutation.mutate({ passwordInput: password });
   };
 
+  const onConfirmAuthEmailChange = (e: Event | React.MouseEvent<HTMLElement, MouseEvent>) => {
+    e.preventDefault();
+
+    if (tempFormValues) updateProfileMutation.mutate(tempFormValues);
+  };
+
   const onConfirmButton = (e: Event | React.MouseEvent<HTMLElement, MouseEvent>) => {
     e.preventDefault();
-    if (isCALIdentityProviver) {
+    if (isCALIdentityProvider) {
       const totpCode = form.getValues("totpCode");
       const password = passwordRef.current.value;
       deleteMeMutation.mutate({ password, totpCode });
@@ -164,7 +206,7 @@ const ProfileView = () => {
 
   const onConfirm = ({ totpCode }: DeleteAccountValues, e: BaseSyntheticEvent | undefined) => {
     e?.preventDefault();
-    if (isCALIdentityProviver) {
+    if (isCALIdentityProvider) {
       const password = passwordRef.current.value;
       deleteMeMutation.mutate({ password, totpCode });
     } else {
@@ -184,14 +226,15 @@ const ProfileView = () => {
     [ErrorCode.ThirdPartyIdentityProviderEnabled]: t("account_created_with_identity_provider"),
   };
 
-  if (isLoading || !user || isLoadingAvatar || !avatar)
+  if (isLoading || !user) {
     return (
       <SkeletonLoader title={t("profile")} description={t("profile_description", { appName: APP_NAME })} />
     );
+  }
 
   const defaultValues = {
     username: user.username || "",
-    avatar: avatar.avatar || "",
+    avatar: user.avatar || "",
     name: user.name || "",
     email: user.email || "",
     bio: user.bio || "",
@@ -199,22 +242,34 @@ const ProfileView = () => {
 
   return (
     <>
-      <Meta title={t("profile")} description={t("profile_description", { appName: APP_NAME })} />
+      <Meta
+        title={t("profile")}
+        description={t("profile_description", { appName: APP_NAME })}
+        borderInShellHeader={true}
+      />
       <ProfileForm
         key={JSON.stringify(defaultValues)}
         defaultValues={defaultValues}
+        isLoading={updateProfileMutation.isLoading}
+        isFallbackImg={checkIfItFallbackImage(fetchedImgSrc)}
+        userAvatar={user.avatar}
+        user={user}
+        userOrganization={user.organization}
         onSubmit={(values) => {
-          if (values.email !== user.email && isCALIdentityProviver) {
+          if (values.email !== user.email && isCALIdentityProvider) {
             setTempFormValues(values);
             setConfirmPasswordOpen(true);
+          } else if (values.email !== user.email && !isCALIdentityProvider) {
+            setTempFormValues(values);
+            // Opens a dialog warning the change
+            setConfirmAuthEmailChangeWarningDialogOpen(true);
           } else {
-            mutation.mutate(values);
+            updateProfileMutation.mutate(values);
           }
         }}
         extraField={
-          <div className="mt-8">
+          <div className="mt-6">
             <UsernameAvailabilityField
-              user={user}
               onSuccessMutation={async () => {
                 showToast(t("settings_updated_successfully"), "success");
                 await utils.viewer.me.invalidate();
@@ -227,52 +282,55 @@ const ProfileView = () => {
         }
       />
 
-      <hr className="border-subtle my-6" />
-
-      <Label>{t("danger_zone")}</Label>
+      <div className="border-subtle mt-6 rounded-lg rounded-b-none border border-b-0 p-6">
+        <Label className="mb-0 text-base font-semibold text-red-700">{t("danger_zone")}</Label>
+        <p className="text-subtle text-sm">{t("account_deletion_cannot_be_undone")}</p>
+      </div>
       {/* Delete account Dialog */}
       <Dialog open={deleteAccountOpen} onOpenChange={setDeleteAccountOpen}>
-        <DialogTrigger asChild>
-          <Button data-testid="delete-account" color="destructive" className="mt-1" StartIcon={Trash2}>
-            {t("delete_account")}
-          </Button>
-        </DialogTrigger>
+        <SectionBottomActions align="end">
+          <DialogTrigger asChild>
+            <Button data-testid="delete-account" color="destructive" className="mt-1" StartIcon={Trash2}>
+              {t("delete_account")}
+            </Button>
+          </DialogTrigger>
+        </SectionBottomActions>
         <DialogContent
           title={t("delete_account_modal_title")}
           description={t("confirm_delete_account_modal", { appName: APP_NAME })}
           type="creation"
           Icon={AlertTriangle}>
           <>
-            <p className="text-default mb-7">
-              {t("delete_account_confirmation_message", { appName: APP_NAME })}
-            </p>
-            {isCALIdentityProviver && (
-              <PasswordField
-                data-testid="password"
-                name="password"
-                id="password"
-                autoComplete="current-password"
-                required
-                label="Password"
-                ref={passwordRef}
-              />
-            )}
+            <div className="mb-10">
+              <p className="text-default mb-4">{t("delete_account_confirmation_message")}</p>
+              {isCALIdentityProvider && (
+                <PasswordField
+                  data-testid="password"
+                  name="password"
+                  id="password"
+                  autoComplete="current-password"
+                  required
+                  label="Password"
+                  ref={passwordRef}
+                />
+              )}
 
-            {user?.twoFactorEnabled && isCALIdentityProviver && (
-              <Form handleSubmit={onConfirm} className="pb-4" form={form}>
-                <TwoFactor center={false} />
-              </Form>
-            )}
+              {user?.twoFactorEnabled && isCALIdentityProvider && (
+                <Form handleSubmit={onConfirm} className="pb-4" form={form}>
+                  <TwoFactor center={false} />
+                </Form>
+              )}
 
-            {hasDeleteErrors && <Alert severity="error" title={deleteErrorMessage} />}
-            <DialogFooter>
+              {hasDeleteErrors && <Alert severity="error" title={deleteErrorMessage} />}
+            </div>
+            <DialogFooter showDivider>
+              <DialogClose />
               <Button
                 color="primary"
                 data-testid="delete-account-confirm"
                 onClick={(e) => onConfirmButton(e)}>
                 {t("delete_my_account")}
               </Button>
-              <DialogClose />
             </DialogFooter>
           </>
         </DialogContent>
@@ -285,7 +343,7 @@ const ProfileView = () => {
           description={t("confirm_password_change_email")}
           type="creation"
           Icon={AlertTriangle}>
-          <>
+          <div className="mb-10">
             <PasswordField
               data-testid="password"
               name="password"
@@ -297,13 +355,37 @@ const ProfileView = () => {
             />
 
             {confirmPasswordErrorMessage && <Alert severity="error" title={confirmPasswordErrorMessage} />}
-            <DialogFooter>
-              <Button color="primary" onClick={(e) => onConfirmPassword(e)}>
-                {t("confirm")}
-              </Button>
-              <DialogClose />
-            </DialogFooter>
-          </>
+          </div>
+          <DialogFooter showDivider>
+            <Button
+              color="primary"
+              loading={confirmPasswordMutation.isLoading}
+              onClick={(e) => onConfirmPassword(e)}>
+              {t("confirm")}
+            </Button>
+            <DialogClose />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* If changing email from !CAL Login */}
+      <Dialog
+        open={confirmAuthEmailChangeWarningDialogOpen}
+        onOpenChange={setConfirmAuthEmailChangeWarningDialogOpen}>
+        <DialogContent
+          title={t("confirm_auth_change")}
+          description={t("confirm_auth_email_change")}
+          type="creation"
+          Icon={AlertTriangle}>
+          <DialogFooter>
+            <Button
+              color="primary"
+              loading={updateProfileMutation.isLoading}
+              onClick={(e) => onConfirmAuthEmailChange(e)}>
+              {t("confirm")}
+            </Button>
+            <DialogClose />
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
@@ -314,20 +396,31 @@ const ProfileForm = ({
   defaultValues,
   onSubmit,
   extraField,
+  isLoading = false,
+  isFallbackImg,
+  userAvatar,
+  user,
+  userOrganization,
 }: {
   defaultValues: FormValues;
   onSubmit: (values: FormValues) => void;
   extraField?: React.ReactNode;
+  isLoading: boolean;
+  isFallbackImg: boolean;
+  userAvatar: string;
+  user: RouterOutputs["viewer"]["me"];
+  userOrganization: RouterOutputs["viewer"]["me"]["organization"];
 }) => {
   const { t } = useLocale();
   const [firstRender, setFirstRender] = useState(true);
 
   const profileFormSchema = z.object({
     username: z.string(),
-    avatar: z.string(),
+    avatar: z.string().nullable(),
     name: z
       .string()
-      .min(1)
+      .trim()
+      .min(1, t("you_need_to_add_a_name"))
       .max(FULL_NAME_LENGTH_MAX_LIMIT, {
         message: t("max_limit_allowed_hint", { limit: FULL_NAME_LENGTH_MAX_LIMIT }),
       }),
@@ -348,51 +441,85 @@ const ProfileForm = ({
 
   return (
     <Form form={formMethods} handleSubmit={onSubmit}>
-      <div className="flex items-center">
-        <Controller
-          control={formMethods.control}
-          name="avatar"
-          render={({ field: { value } }) => (
-            <>
-              <Avatar alt="" imageSrc={value} gravatarFallbackMd5="fallback" size="lg" />
-              <div className="ms-4">
-                <ImageUploader
-                  target="avatar"
-                  id="avatar-upload"
-                  buttonMsg={t("change_avatar")}
-                  handleAvatarChange={(newAvatar) => {
-                    formMethods.setValue("avatar", newAvatar, { shouldDirty: true });
-                  }}
-                  imageSrc={value || undefined}
-                />
-              </div>
-            </>
-          )}
-        />
+      <div className="border-subtle border-x px-4 pb-10 pt-8 sm:px-6">
+        <div className="flex items-center">
+          <Controller
+            control={formMethods.control}
+            name="avatar"
+            render={({ field: { value } }) => {
+              const showRemoveAvatarButton = !isFallbackImg || (value && userAvatar !== value);
+              const organization =
+                userOrganization && userOrganization.id
+                  ? {
+                      ...(userOrganization as Ensure<typeof user.organization, "id">),
+                      slug: userOrganization.slug || null,
+                      requestedSlug: userOrganization.metadata?.requestedSlug || null,
+                    }
+                  : null;
+              return (
+                <>
+                  <OrganizationMemberAvatar
+                    previewSrc={value}
+                    size="lg"
+                    user={user}
+                    organization={organization}
+                  />
+                  <div className="ms-4">
+                    <h2 className="mb-2 text-sm font-medium">{t("profile_picture")}</h2>
+                    <div className="flex gap-2">
+                      <ImageUploader
+                        target="avatar"
+                        id="avatar-upload"
+                        buttonMsg={t("upload_avatar")}
+                        handleAvatarChange={(newAvatar) => {
+                          formMethods.setValue("avatar", newAvatar, { shouldDirty: true });
+                        }}
+                        imageSrc={value || undefined}
+                        triggerButtonColor={showRemoveAvatarButton ? "secondary" : "primary"}
+                      />
+
+                      {showRemoveAvatarButton && (
+                        <Button
+                          color="secondary"
+                          onClick={() => {
+                            formMethods.setValue("avatar", null, { shouldDirty: true });
+                          }}>
+                          {t("remove")}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            }}
+          />
+        </div>
+        {extraField}
+        <div className="mt-6">
+          <TextField label={t("full_name")} {...formMethods.register("name")} />
+        </div>
+        <div className="mt-6">
+          <TextField label={t("email")} hint={t("change_email_hint")} {...formMethods.register("email")} />
+        </div>
+        <div className="mt-6">
+          <Label>{t("about")}</Label>
+          <Editor
+            getText={() => md.render(formMethods.getValues("bio") || "")}
+            setText={(value: string) => {
+              formMethods.setValue("bio", turndown(value), { shouldDirty: true });
+            }}
+            excludedToolbarItems={["blockType"]}
+            disableLists
+            firstRender={firstRender}
+            setFirstRender={setFirstRender}
+          />
+        </div>
       </div>
-      {extraField}
-      <div className="mt-8">
-        <TextField label={t("full_name")} {...formMethods.register("name")} />
-      </div>
-      <div className="mt-8">
-        <TextField label={t("email")} hint={t("change_email_hint")} {...formMethods.register("email")} />
-      </div>
-      <div className="mt-8">
-        <Label>{t("about")}</Label>
-        <Editor
-          getText={() => md.render(formMethods.getValues("bio") || "")}
-          setText={(value: string) => {
-            formMethods.setValue("bio", turndown(value), { shouldDirty: true });
-          }}
-          excludedToolbarItems={["blockType"]}
-          disableLists
-          firstRender={firstRender}
-          setFirstRender={setFirstRender}
-        />
-      </div>
-      <Button disabled={isDisabled} color="primary" className="mt-8" type="submit">
-        {t("update")}
-      </Button>
+      <SectionBottomActions align="end">
+        <Button loading={isLoading} disabled={isDisabled} color="primary" type="submit">
+          {t("update")}
+        </Button>
+      </SectionBottomActions>
     </Form>
   );
 };

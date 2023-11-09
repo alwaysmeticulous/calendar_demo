@@ -50,6 +50,8 @@ export async function getServerSession(options: {
     where: {
       email: token.email.toLowerCase(),
     },
+    // TODO: Re-enable once we get confirmation from compliance that this is okay.
+    // cacheStrategy: { ttl: 60, swr: 1 },
   });
 
   if (!user) {
@@ -72,6 +74,8 @@ export async function getServerSession(options: {
       image: `${CAL_URL}/${user.username}/avatar.png`,
       impersonatedByUID: token.impersonatedByUID ?? undefined,
       belongsToActiveTeam: token.belongsToActiveTeam,
+      org: token.org,
+      locale: user.locale ?? undefined,
     },
   };
 

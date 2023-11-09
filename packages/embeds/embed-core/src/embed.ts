@@ -2,12 +2,14 @@
 import { FloatingButton } from "./FloatingButton/FloatingButton";
 import { Inline } from "./Inline/inline";
 import { ModalBox } from "./ModalBox/ModalBox";
-import type { InterfaceWithParent, interfaceWithParent, UiConfig } from "./embed-iframe";
+import type { InterfaceWithParent, interfaceWithParent, PrefillAndIframeAttrsConfig } from "./embed-iframe";
 import css from "./embed.css";
-import type { EventData, EventDataMap } from "./sdk-action-manager";
 import { SdkActionManager } from "./sdk-action-manager";
+import type { EventData, EventDataMap } from "./sdk-action-manager";
 import allCss from "./tailwind.generated.css?inline";
+import type { UiConfig } from "./types";
 
+export type { PrefillAndIframeAttrsConfig } from "./embed-iframe";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Rest<T extends any[]> = T extends [any, ...infer U] ? U : never;
 export type Message = {
@@ -114,6 +116,31 @@ function validate(data: Record<string, unknown>, schema: ValidationSchema) {
   }
 }
 
+function getColorScheme(el: Element) {
+  const pageColorScheme = getComputedStyle(el).colorScheme;
+  if (pageColorScheme === "dark" || pageColorScheme === "light") {
+    return pageColorScheme;
+  }
+  return null;
+}
+
+function withColorScheme(
+  queryObject: PrefillAndIframeAttrsConfig & { guest?: string | string[] },
+  containerEl: Element
+) {
+  // If color-scheme not explicitly configured, keep it same as the webpage that has the iframe
+  // This is done to avoid having an opaque background of iframe that arises when they aren't same. We really need to have a transparent background to make embed part of the page
+  // https://fvsch.com/transparent-iframes#:~:text=the%20resolution%20was%3A-,If%20the%20color%20scheme%20of%20an%20iframe%20differs%20from%20embedding%20document%2C%20iframe%20gets%20an%20opaque%20canvas%20background%20appropriate%20to%20its%20color%20scheme.,-So%20the%20dark
+  if (!queryObject["ui.color-scheme"]) {
+    const colorScheme = getColorScheme(containerEl);
+    // Only handle two color-schemes for now. We don't want to have unintented affect by always explicitly adding color-scheme
+    if (colorScheme) {
+      queryObject["ui.color-scheme"] = colorScheme;
+    }
+  }
+  return queryObject;
+}
+
 type SingleInstructionMap = {
   // TODO: This makes api("on", {}) loose it's generic type. Find a way to fix it.
   // e.g. api("on", { action: "__dimensionChanged", callback: (e) => { /* `e.detail.data` has all possible values for all events/actions */} });
@@ -125,20 +152,14 @@ type SingleInstruction = SingleInstructionMap[keyof SingleInstructionMap];
 export type Instruction = SingleInstruction | SingleInstruction[];
 export type InstructionQueue = Instruction[];
 
-type PrefillAndIframeAttrsConfig = Record<string, string | string[] | Record<string, string>> & {
-  iframeAttrs?: Record<string, string> & {
-    id?: string;
-  };
-};
-
 export class Cal {
   iframe?: HTMLIFrameElement;
 
   __config: Config;
 
-  modalBox!: Element;
+  modalBox?: Element;
 
-  inlineEl!: Element;
+  inlineEl?: Element;
 
   namespace: string;
 
@@ -149,6 +170,8 @@ export class Cal {
   iframeDoQueue: DoInIframeArg[] = [];
 
   api: CalApi;
+
+  isPerendering?: boolean;
 
   static actionsManagers: Record<Namespace, SdkActionManager>;
 
@@ -203,6 +226,9 @@ export class Cal {
     };
   }
 
+  /**
+   * Iframe is added invisible and shown only after color-scheme is set by the embedded calLink to avoid flash of non-transparent(white/black) background
+   */
   createIframe({
     calLink,
     queryObject = {},
@@ -210,11 +236,11 @@ export class Cal {
   }: {
     calLink: string;
     queryObject?: PrefillAndIframeAttrsConfig & { guest?: string | string[] };
-    calOrigin?: string;
+    calOrigin: string | null;
   }) {
     const iframe = (this.iframe = document.createElement("iframe"));
     iframe.className = "cal-embed";
-    iframe.name = "cal-embed";
+    iframe.name = `cal-embed=${this.namespace}`;
     const config = this.getConfig();
     const { iframeAttrs, ...restQueryObject } = queryObject;
 
@@ -235,15 +261,25 @@ export class Cal {
       }
     }
 
-    const urlInstance = new URL(`${calOrigin || config.calOrigin}/${calLink}`);
+    // cal.com has rewrite issues on Safari that sometimes cause 404 for assets.
+    const originToUse = (calOrigin || config.calOrigin || "").replace(
+      "https://cal.com",
+      "https://app.cal.com"
+    );
+    const urlInstance = new URL(`${originToUse}/${calLink}`);
     if (!urlInstance.pathname.endsWith("embed")) {
       // TODO: Make a list of patterns that are embeddable. All except that should be allowed with a warning that "The page isn't optimized for embedding"
       urlInstance.pathname = `${urlInstance.pathname}/embed`;
     }
     urlInstance.searchParams.set("embed", this.namespace);
+
     if (config.debug) {
-      urlInstance.searchParams.set("debug", "" + config.debug);
+      urlInstance.searchParams.set("debug", `${config.debug}`);
     }
+
+    // Keep iframe invisible, till the embedded calLink sets its color-scheme. This is so that there is no flash of non-transparent(white/black) background
+    iframe.style.visibility = "hidden";
+
     if (config.uiDebug) {
       iframe.style.border = "1px solid green";
     }
@@ -314,12 +350,21 @@ export class Cal {
         // It ensures that if the iframe is so tall that it can't fit in the parent window without scroll. Then force the scroll by restricting the max-height to innerHeight
         // This case is reproducible when viewing in ModalBox on Mobile.
         const spacingTopPlusBottom = 2 * 50; // 50 is the padding we want to keep to show close button comfortably. Make it same as top for bottom.
-        iframe.style.maxHeight = window.innerHeight - spacingTopPlusBottom + "px";
+        iframe.style.maxHeight = `${window.innerHeight - spacingTopPlusBottom}px`;
       }
     });
 
     this.actionManager.on("__iframeReady", () => {
       this.iframeReady = true;
+      if (this.iframe) {
+        // It's a bit late to make the iframe visible here. We just needed to wait for the HTML tag of the embedded calLink to be rendered(which then informs the browser of the color-scheme)
+        // Right now it would wait for embed-iframe.js bundle to be loaded as well. We can speed that up by inlining the JS that informs about color-scheme being set in the HTML.
+        // But it's okay to do it here for now because the embedded calLink also keeps itself hidden till it receives `parentKnowsIframeReady` message(It has it's own reasons for that)
+        // Once the embedded calLink starts not hiding the document, we should optimize this line to make the iframe visible earlier than this.
+
+        // Imp: Don't use visiblity:visible as that would make the iframe show even if the host element(A paren tof the iframe) has visiblity:hidden set. Just reset the visibility to default
+        this.iframe.style.visibility = "";
+      }
       this.doInIframe({ method: "parentKnowsIframeReady" } as const);
       this.iframeDoQueue.forEach((doInIframeArg) => {
         this.doInIframe(doInIframeArg);
@@ -327,6 +372,9 @@ export class Cal {
     });
 
     this.actionManager.on("__routeChanged", () => {
+      if (!this.inlineEl) {
+        return;
+      }
       const { top, height } = this.inlineEl.getBoundingClientRect();
       // Try to readjust and scroll into view if more than 25% is hidden.
       // Otherwise we assume that user might have positioned the content appropriately already
@@ -336,6 +384,10 @@ export class Cal {
     });
 
     this.actionManager.on("linkReady", () => {
+      if (this.isPerendering) {
+        // Absolute check to ensure that we don't mark embed as loaded if it's prerendering otherwise prerendered embed would showup without any user action
+        return;
+      }
       this.modalBox?.setAttribute("state", "loaded");
       this.inlineEl?.setAttribute("loading", "done");
     });
@@ -355,7 +407,9 @@ export class Cal {
 
 class CalApi {
   cal: Cal;
-
+  static initializedNamespaces = [] as string[];
+  modalUid?: string;
+  preloadedModalUid?: string;
   constructor(cal: Cal) {
     this.cal = cal;
   }
@@ -364,6 +418,8 @@ class CalApi {
     if (typeof namespaceOrConfig !== "string") {
       config = (namespaceOrConfig || {}) as Config;
     }
+
+    CalApi.initializedNamespaces.push(this.cal.namespace);
 
     const { calOrigin: calOrigin, origin: origin, ...restConfig } = config;
 
@@ -407,23 +463,33 @@ class CalApi {
     if (typeof config.iframeAttrs === "string" || config.iframeAttrs instanceof Array) {
       throw new Error("iframeAttrs should be an object");
     }
-    config.embedType = "inline";
-    const iframe = this.cal.createIframe({ calLink, queryObject: Cal.getQueryObject(config) });
-    iframe.style.height = "100%";
-    iframe.style.width = "100%";
-    const element =
+    const containerEl =
       elementOrSelector instanceof HTMLElement
         ? elementOrSelector
         : document.querySelector(elementOrSelector);
-    if (!element) {
+
+    if (!containerEl) {
       throw new Error("Element not found");
     }
-    element.classList.add("cal-inline-container");
+
+    config.embedType = "inline";
+    const calConfig = this.cal.getConfig();
+
+    const iframe = this.cal.createIframe({
+      calLink,
+      queryObject: withColorScheme(Cal.getQueryObject(config), containerEl),
+      calOrigin: calConfig.calOrigin,
+    });
+
+    iframe.style.height = "100%";
+    iframe.style.width = "100%";
+
+    containerEl.classList.add("cal-inline-container");
     const template = document.createElement("template");
     template.innerHTML = `<cal-inline style="max-height:inherit;height:inherit;min-height:inherit;display:flex;position:relative;flex-wrap:wrap;width:100%"></cal-inline><style>.cal-inline-container::-webkit-scrollbar{display:none}.cal-inline-container{scrollbar-width:none}</style>`;
     this.cal.inlineEl = template.content.children[0];
     this.cal.inlineEl.appendChild(iframe);
-    element.appendChild(template.content);
+    containerEl.appendChild(template.content);
   }
 
   floatingButton({
@@ -435,6 +501,7 @@ class CalApi {
     buttonColor = "rgb(0, 0, 0)",
     buttonTextColor = "rgb(255, 255, 255)",
     calOrigin,
+    config,
   }: {
     calLink: string;
     buttonText?: string;
@@ -444,6 +511,7 @@ class CalApi {
     buttonColor?: string;
     buttonTextColor?: string;
     calOrigin?: string;
+    config?: PrefillAndIframeAttrsConfig;
   }) {
     // validate(arguments[0], {
     //   required: true,
@@ -466,6 +534,10 @@ class CalApi {
       el.dataset.calLink = calLink;
       el.dataset.calNamespace = this.cal.namespace;
       el.dataset.calOrigin = calOrigin ?? "";
+      if (config) {
+        el.dataset.calConfig = JSON.stringify(config);
+      }
+
       if (attributes?.id) {
         el.id = attributes.id;
       }
@@ -476,48 +548,91 @@ class CalApi {
     }
     const dataset = el.dataset;
     dataset["buttonText"] = buttonText;
-    dataset["hideButtonIcon"] = "" + hideButtonIcon;
-    dataset["buttonPosition"] = "" + buttonPosition;
-    dataset["buttonColor"] = "" + buttonColor;
-    dataset["buttonTextColor"] = "" + buttonTextColor;
+    dataset["hideButtonIcon"] = `${hideButtonIcon}`;
+    dataset["buttonPosition"] = `${buttonPosition}`;
+    dataset["buttonColor"] = `${buttonColor}`;
+    dataset["buttonTextColor"] = `${buttonTextColor}`;
   }
 
   modal({
     calLink,
-    calOrigin,
     config = {},
-    uid,
+    calOrigin,
+    __prerender = false,
   }: {
     calLink: string;
     config?: PrefillAndIframeAttrsConfig;
-    uid?: string | number;
     calOrigin?: string;
+    __prerender?: boolean;
   }) {
-    uid = uid || 0;
+    const uid = this.modalUid || this.preloadedModalUid || String(Date.now()) || "0";
+    const isConnectingToPreloadedModal = this.preloadedModalUid && !this.modalUid;
 
-    const existingModalEl = document.querySelector(`cal-modal-box[uid="${uid}"]`);
-    if (existingModalEl) {
-      existingModalEl.setAttribute("state", "started");
-      return;
+    const containerEl = document.body;
+
+    this.cal.isPerendering = !!__prerender;
+
+    if (__prerender) {
+      // Add preload query param
+      config.prerender = "true";
     }
+
+    const queryObject = withColorScheme(Cal.getQueryObject(config), containerEl);
+    const existingModalEl = document.querySelector(`cal-modal-box[uid="${uid}"]`);
+
+    if (existingModalEl) {
+      if (isConnectingToPreloadedModal) {
+        this.cal.doInIframe({
+          method: "connect",
+          arg: queryObject,
+        });
+        this.modalUid = uid;
+        existingModalEl.setAttribute("state", "loading");
+        return;
+      } else {
+        existingModalEl.setAttribute("state", "reopening");
+        return;
+      }
+    }
+
+    if (__prerender) {
+      this.preloadedModalUid = uid;
+    }
+
     if (typeof config.iframeAttrs === "string" || config.iframeAttrs instanceof Array) {
       throw new Error("iframeAttrs should be an object");
     }
-    config.embedType = "modal";
-    const iframe = this.cal.createIframe({ calLink, calOrigin, queryObject: Cal.getQueryObject(config) });
-    iframe.style.borderRadius = "8px";
 
+    config.embedType = "modal";
+    let iframe = null;
+
+    if (!iframe) {
+      iframe = this.cal.createIframe({
+        calLink,
+        queryObject,
+        calOrigin: calOrigin || null,
+      });
+    }
+
+    iframe.style.borderRadius = "8px";
     iframe.style.height = "100%";
     iframe.style.width = "100%";
     const template = document.createElement("template");
     template.innerHTML = `<cal-modal-box uid="${uid}"></cal-modal-box>`;
-
     this.cal.modalBox = template.content.children[0];
     this.cal.modalBox.appendChild(iframe);
+    if (__prerender) {
+      this.cal.modalBox.setAttribute("state", "prerendering");
+    }
+    this.handleClose();
+    containerEl.appendChild(template.content);
+  }
+
+  private handleClose() {
+    // A request, to close from the iframe, should close the modal
     this.cal.actionManager.on("__closeIframe", () => {
-      this.cal.modalBox.setAttribute("state", "closed");
+      this.cal.modalBox?.setAttribute("state", "closed");
     });
-    document.body.appendChild(template.content);
   }
 
   on<T extends keyof EventDataMap>({
@@ -544,11 +659,33 @@ class CalApi {
     this.cal.actionManager.on(action, callback);
   }
 
-  off({ action, callback }: { action: never; callback: never }) {
+  off<T extends keyof EventDataMap>({
+    action,
+    callback,
+  }: {
+    action: T;
+    callback: (arg0: CustomEvent<EventData<T>>) => void;
+  }) {
     this.cal.actionManager.off(action, callback);
   }
-
-  preload({ calLink }: { calLink: string }) {
+  /**
+   *
+   * type is provided and prerenderIframe not set. We would assume prerenderIframe to be true
+   * type is provided and prerenderIframe set to false. We would ignore the type and preload assets only
+   * type is not provided and prerenderIframe set to true. We would throw error as we don't know what to prerender
+   * type is not provided and prerenderIframe set to false. We would preload assets only
+   */
+  preload({
+    calLink,
+    type,
+    options = {},
+  }: {
+    calLink: string;
+    type?: "modal" | "floatingButton";
+    options?: {
+      prerenderIframe?: boolean;
+    };
+  }) {
     // eslint-disable-next-line prefer-rest-params
     validate(arguments[0], {
       required: true,
@@ -557,17 +694,58 @@ class CalApi {
           type: "string",
           required: true,
         },
+        type: {
+          type: "string",
+          required: false,
+        },
+        options: {
+          type: Object,
+          required: false,
+        },
       },
     });
-    const iframe = document.body.appendChild(document.createElement("iframe"));
-    const config = this.cal.getConfig();
+    let api: GlobalCalWithoutNs = globalCal;
+    const namespace = this.cal.namespace;
+    if (namespace) {
+      api = globalCal.ns[namespace];
+    }
 
-    const urlInstance = new URL(`${config.calOrigin}/${calLink}`);
-    urlInstance.searchParams.set("prerender", "true");
-    iframe.src = urlInstance.toString();
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.display = "none";
+    if (!api) {
+      throw new Error(`Namespace ${namespace} isn't defined`);
+    }
+
+    const config = this.cal.getConfig();
+    let prerenderIframe = options.prerenderIframe;
+    if (type && prerenderIframe === undefined) {
+      prerenderIframe = true;
+    }
+
+    if (!type && prerenderIframe) {
+      throw new Error("You should provide 'type'");
+    }
+
+    if (prerenderIframe) {
+      if (type === "modal" || type === "floatingButton") {
+        this.cal.isPerendering = true;
+        this.modal({
+          calLink,
+          calOrigin: config.calOrigin,
+          __prerender: true,
+        });
+      } else {
+        console.warn("Ignoring - full preload for inline embed and instead preloading assets only");
+        preloadAssetsForCalLink({ calLink, config });
+      }
+    } else {
+      preloadAssetsForCalLink({ calLink, config });
+    }
+  }
+
+  prerender({ calLink, type }: { calLink: string; type: "modal" | "floatingButton" }) {
+    this.preload({
+      calLink,
+      type,
+    });
   }
 
   ui(uiConfig: UiConfig) {
@@ -620,7 +798,9 @@ export interface CalWindow extends Window {
   Cal: GlobalCal;
 }
 
-globalCal.instance = new Cal("", globalCal.q);
+const DEFAULT_NAMESPACE = "";
+
+globalCal.instance = new Cal(DEFAULT_NAMESPACE, globalCal.q);
 for (const [ns, api] of Object.entries(globalCal.ns)) {
   api.instance = new Cal(ns, api.q);
 }
@@ -641,7 +821,7 @@ window.addEventListener("message", (e) => {
   globalCal.__logQueue.push({ ...parsedAction, data: detail.data });
 
   if (!actionManager) {
-    throw new Error("Unhandled Action" + parsedAction);
+    throw new Error(`Unhandled Action ${parsedAction}`);
   }
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
@@ -657,7 +837,7 @@ document.addEventListener("click", (e) => {
   if (!path) {
     return;
   }
-  const modalUniqueId = (targetEl.dataset.uniqueId = targetEl.dataset.uniqueId || String(Date.now()));
+
   const namespace = targetEl.dataset.calNamespace;
   const configString = targetEl.dataset.calConfig || "";
   const calOrigin = targetEl.dataset.calOrigin || "";
@@ -681,7 +861,46 @@ document.addEventListener("click", (e) => {
   api("modal", {
     calLink: path,
     config,
-    uid: modalUniqueId,
     calOrigin,
   });
 });
+
+let currentColorScheme: string | null = null;
+
+(function watchAndActOnColorSchemeChange() {
+  // TODO: Maybe find a better way to identify change in color-scheme, a mutation observer seems overkill for this. Settle with setInterval for now.
+  setInterval(() => {
+    const colorScheme = getColorScheme(document.body);
+    if (colorScheme && colorScheme !== currentColorScheme) {
+      currentColorScheme = colorScheme;
+      // Go through all the embeds on the same page and update all of them with this info
+      CalApi.initializedNamespaces.forEach((ns) => {
+        const api = getEmbedApiFn(ns);
+        api("ui", {
+          colorScheme: colorScheme,
+        });
+      });
+    }
+  }, 50);
+})();
+
+function getEmbedApiFn(ns: string) {
+  let api;
+  if (ns === DEFAULT_NAMESPACE) {
+    api = globalCal;
+  } else {
+    api = globalCal.ns[ns];
+  }
+  return api;
+}
+
+function preloadAssetsForCalLink({ config, calLink }: { config: Config; calLink: string }) {
+  const iframe = document.body.appendChild(document.createElement("iframe"));
+
+  const urlInstance = new URL(`${config.calOrigin}/${calLink}`);
+  urlInstance.searchParams.set("preload", "true");
+  iframe.src = urlInstance.toString();
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.display = "none";
+}

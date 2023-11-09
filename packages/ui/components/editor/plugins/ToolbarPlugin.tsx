@@ -358,6 +358,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
         }
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.updateTemplate]);
 
   useEffect(() => {
@@ -381,6 +382,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
         });
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -392,7 +394,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
       }),
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
-        (_payload, newEditor) => {
+        (_payload, _newEditor) => {
           updateToolbar();
           return false;
         },
@@ -418,7 +420,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
             <Dropdown>
               <DropdownMenuTrigger className="text-subtle">
                 <>
-                  <span className={"icon" + blockType} />
+                  <span className={`icon${blockType}`} />
                   <span className="text text-default hidden sm:flex">
                     {blockTypeToBlockName[blockType as keyof BlockType]}
                   </span>
@@ -438,7 +440,7 @@ export default function ToolbarPlugin(props: TextEditorProps) {
                           blockType === key ? "bg-subtle w-full" : ""
                         )}>
                         <>
-                          <span className={"icon block-type " + key} />
+                          <span className={`icon block-type ${key}`} />
                           <span>{blockTypeToBlockName[key]}</span>
                         </>
                       </Button>

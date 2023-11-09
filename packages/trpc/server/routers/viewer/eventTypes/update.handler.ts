@@ -1,10 +1,12 @@
-import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import type { NextApiResponse, GetServerSidePropsContext } from "next";
 
-import { stripeDataSchema } from "@calcom/app-store/stripepayment/lib/server";
 import updateChildrenEventTypes from "@calcom/features/ee/managed-event-types/lib/handleChildrenEventTypes";
 import { validateIntervalLimitOrder } from "@calcom/lib";
+import logger from "@calcom/lib/logger";
+import { getTranslation } from "@calcom/lib/server";
+import { validateBookerLayouts } from "@calcom/lib/validateBookerLayouts";
+import type { PrismaClient } from "@calcom/prisma";
 import { WorkflowActions, WorkflowTriggerEvents } from "@calcom/prisma/client";
 import { SchedulingType } from "@calcom/prisma/enums";
 
@@ -42,12 +44,39 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     // Extract this from the input so it doesn't get saved in the db
     // eslint-disable-next-line
     userId,
-    // eslint-disable-next-line
-    teamId,
     bookingFields,
     offsetStart,
     ...rest
   } = input;
+
+  const eventType = await ctx.prisma.eventType.findUniqueOrThrow({
+    where: { id },
+    select: {
+      children: {
+        select: {
+          userId: true,
+        },
+      },
+      workflows: {
+        select: {
+          workflowId: true,
+        },
+      },
+      team: {
+        select: {
+          name: true,
+          id: true,
+          parentId: true,
+        },
+      },
+    },
+  });
+
+  if (input.teamId && eventType.team?.id && input.teamId !== eventType.team.id) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  const teamId = input.teamId || eventType.team?.id;
 
   ensureUniqueBookingFields(bookingFields);
 
@@ -110,6 +139,12 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     data.offsetStart = offsetStart;
   }
 
+  const bookerLayoutsError = validateBookerLayouts(input.metadata?.bookerLayouts || null);
+  if (bookerLayoutsError) {
+    const t = await getTranslation("en", "common");
+    throw new TRPCError({ code: "BAD_REQUEST", message: t(bookerLayoutsError) });
+  }
+
   if (schedule) {
     // Check that the schedule belongs to the user
     const userScheduleQuery = await ctx.prisma.schedule.findFirst({
@@ -140,7 +175,24 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     };
   }
 
-  if (hosts) {
+  if (teamId && hosts) {
+    // check if all hosts can be assigned (memberships that have accepted invite)
+    const memberships =
+      (await ctx.prisma.membership.findMany({
+        where: {
+          teamId,
+          accepted: true,
+        },
+      })) || [];
+    const teamMemberIds = memberships.map((membership) => membership.userId);
+    // guard against missing IDs, this may mean a member has just been removed
+    // or this request was forged.
+    // we let this pass through on organization sub-teams
+    if (!hosts.every((host) => teamMemberIds.includes(host.userId)) && !eventType.team?.parentId) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+      });
+    }
     data.hosts = {
       deleteMany: {},
       create: hosts.map((host) => ({
@@ -188,25 +240,31 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
     }
   }
 
-  if (input?.price || input.metadata?.apps?.stripe?.price) {
-    data.price = input.price || input.metadata?.apps?.stripe?.price;
-    const paymentCredential = await ctx.prisma.credential.findFirst({
-      where: {
-        userId: ctx.user.id,
-        type: {
-          contains: "_payment",
-        },
-      },
-      select: {
-        type: true,
-        key: true,
-      },
-    });
+  /**
+   * Since you can have multiple payment apps we will honor the first one to save in eventType
+   * but the real detail will be inside app metadata, so with this you can have different prices in different apps
+   * So the price and currency inside eventType will be deprecated soon or just keep as reference.
+   */
+  if (
+    input.metadata?.apps?.alby?.price ||
+    input?.metadata?.apps?.paypal?.price ||
+    input?.metadata?.apps?.stripe?.price
+  ) {
+    data.price =
+      input.metadata?.apps?.alby?.price ||
+      input.metadata.apps.paypal?.price ||
+      input.metadata.apps.stripe?.price;
+  }
 
-    if (paymentCredential?.type === "stripe_payment") {
-      const { default_currency } = stripeDataSchema.parse(paymentCredential.key);
-      data.currency = default_currency;
-    }
+  if (
+    input.metadata?.apps?.alby?.currency ||
+    input?.metadata?.apps?.paypal?.currency ||
+    input?.metadata?.apps?.stripe?.currency
+  ) {
+    data.currency =
+      input.metadata?.apps?.alby?.currency ||
+      input.metadata.apps.paypal?.currency ||
+      input.metadata.apps.stripe?.currency;
   }
 
   const connectedLink = await ctx.prisma.hashedLink.findFirst({
@@ -247,47 +305,47 @@ export const updateHandler = async ({ ctx, input }: UpdateOptions) => {
       });
     }
   }
-  const [oldEventType, eventType] = await ctx.prisma.$transaction([
-    ctx.prisma.eventType.findFirst({
-      where: { id },
-      select: {
-        children: {
-          select: {
-            userId: true,
-          },
-        },
-        workflows: {
-          select: {
-            workflowId: true,
-          },
-        },
-        team: {
-          select: {
-            name: true,
-          },
-        },
-      },
-    }),
-    ctx.prisma.eventType.update({
+
+  const updatedEventTypeSelect = Prisma.validator<Prisma.EventTypeSelect>()({
+    slug: true,
+    schedulingType: true,
+  });
+  let updatedEventType: Prisma.EventTypeGetPayload<{ select: typeof updatedEventTypeSelect }>;
+  try {
+    updatedEventType = await ctx.prisma.eventType.update({
       where: { id },
       data,
-    }),
-  ]);
+      select: updatedEventTypeSelect,
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === "P2002") {
+        // instead of throwing a 500 error, catch the conflict and throw a 400 error.
+        throw new TRPCError({ message: "error_event_type_url_duplicate", code: "BAD_REQUEST" });
+      }
+    }
+    throw e;
+  }
 
   // Handling updates to children event types (managed events types)
   await updateChildrenEventTypes({
     eventTypeId: id,
     currentUserId: ctx.user.id,
-    oldEventType,
+    oldEventType: eventType,
     hashedLink,
     connectedLink,
-    updatedEventType: eventType,
+    updatedEventType,
     children,
     prisma: ctx.prisma,
   });
   const res = ctx.res as NextApiResponse;
   if (typeof res?.revalidate !== "undefined") {
-    await res?.revalidate(`/${ctx.user.username}/${eventType.slug}`);
+    try {
+      await res?.revalidate(`/${ctx.user.username}/${updatedEventType.slug}`);
+    } catch (e) {
+      // if reach this it is because the event type page has not been created, so it is not possible to revalidate it
+      logger.debug((e as Error)?.message);
+    }
   }
   return { eventType };
 };

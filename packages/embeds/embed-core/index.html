@@ -82,20 +82,33 @@
     </style>
   </head>
   <body>
+    <span style="display: block"><a href="?color-scheme=dark">With Dark Color Scheme for the Page</a></span>
     <span style="display: block"><a href="?nonResponsive">Non responsive version of this page here</a></span>
     <span style="display: block"
-      ><a href="?only=prerender-test">Go to Pre-render test page only</a><small></small
+      ><a href="?only=prerender-test">Go to Prerender test page only</a><small></small
     ></span>
+    <span style="display: block"
+    ><a href="?only=preload-test">Go to Preload test page only</a><small></small
+  ></span>
+    <button onclick="document.documentElement.style.colorScheme='dark'">Toggle Dark Scheme</button>
+    <button onclick="document.documentElement.style.colorScheme='light'">Toggle Light Scheme</button>
     <div>
       <script>
         if (only === "all" || only === "prerender-test") {
           document.write(`
-          <button data-cal-namespace="prerendertestLightTheme" data-cal-config='{"theme":"light"}' data-cal-link="free?light&popup">Book with Free User[Light Theme]</button>
+          <button data-cal-namespace="e2ePrerenderLightTheme"  data-cal-config='{"theme":"dark", "email":"preloaded-prefilled@example.com", "name": "Preloaded Prefilled"}' data-cal-link="free/30min">Book with Free User[Dark Theme]</button>
           <i
-            >Corresponding Cal Link is being preloaded. Assuming that it would take you some time to click this
+            >Corresponding Cal Link is being prerendered. Assuming that it would take you some time to click this
             as you are reading this text, it would open up super fast[If you are running a production build on
             local]. Try switching to slow 3G or create a custom Network configuration which is impossibly
-            slow</i
+            slow. This should be used if you know beforehand which type of embed is going to be opened.</i
+          >`);
+        }
+        if (only === "all" || only === "preload-test") {
+          document.write(`
+          <button data-cal-namespace="preloadTest" data-cal-config='{"theme":"dark", "email":"preloaded-prefilled@example.com", "name": "Preloaded Prefilled"}' data-cal-link="free/30min">Book with Free User[Dark Theme]</button>
+          <i
+            >Corresponding Cal Link is being preloaded. That means that all the resources would be preloaded. This could be useful in preloading possible resources if you don't know before hand which type of embed you want to show</i
           >`);
         }
       </script>
@@ -107,6 +120,7 @@
       <a href="?only=ns:floatingButton">Floating Popup</a>
 
       <h2>Popup Examples</h2>
+      <button data-cal-namespace="e2ePopupLightTheme" data-cal-link="free" data-cal-config='{"theme":"light"}'>Book an event with Free[Light Theme]</button>
       <button data-cal-namespace="popupAutoTheme" data-cal-link="free">
         Book with Free User[Auto Theme]
       </button>
@@ -150,6 +164,12 @@
         data-cal-link="forms/948ae412-d995-4865-875a-48302588de03">
         Book through Routing Form [Dark Theme]
       </button>
+      <button data-cal-namespace="popupPaidEvent" data-cal-config='{"layout":"week_view"}' data-cal-link="pro/paid">
+        Book Paid Event - weekly view
+      </button>
+      <button data-cal-namespace="popupPaidEvent" data-cal-config='{"layout":"column_view"}' data-cal-link="pro/paid">
+        Book Paid Event - column view
+      </button>
       <!-- <div>
         <h2>Embed for Pages behind authentication</h2>
         <button data-cal-namespace="upcomingBookings" data-cal-config='{"theme":"dark"}' data-cal-link="bookings/upcoming">Show Upcoming Bookings</button>
@@ -159,10 +179,12 @@
     <div id="namespaces-test">
       <div class="inline-embed-container" id="cal-booking-place-default">
         <h3>
-          <a href="?only=ns:default">[Dark Theme][Guests(janedoe@example.com and test@example.com)]</a>
+          <a href="?only=ns:default">[Dark Theme][Guests(janedoe@example.com and test@example.com)](Default Namespace)</a>
         </h3>
         <button onclick="Cal('ui',{theme:'light'})">Toggle to Light</button>
-
+        <button onclick="Cal('ui',{layout:'week_view'})">Toggle to Week View</button>
+        <button onclick="Cal('ui',{layout:'month_view'})">Toggle to Month View</button>
+        <button onclick="Cal('ui',{layout:'column_view'})">Toggle to Column View</button>
         <i class="last-action"> You would see last Booking page action in my place </i>
         <div>
           <div class="place" style="width: 100%"></div>
@@ -180,6 +202,10 @@
             onclick="(function () {Cal.ns.second('ui', {cssVarsPerTheme:{light:{'cal-border-booker':'green', 'cal-border-booker-width':'20px'},dark:{'cal-border-booker':'red', 'cal-border-booker-width':'5px'}}})})()">
             Change booker border for dark and light themes
           </button>
+          <button
+          onclick="(function () {Cal.ns.second('ui', {cssVarsPerTheme:{light:{'cal-brand':'green'},dark:{'cal-brand':'red'}}})})()">
+          Change Brand color for dark and light theme
+        </button>
           <button
             onclick="(function () {Cal.ns.second('ui', {styles:{eventTypeListItem:{backgroundColor:'blue'}}})})()">
             Change <code>eventTypeListItem</code> bg color[Deprecated]
@@ -242,6 +268,18 @@
       <div class="dark"></div>
       <i>Note that one of the embeds would stay in loading state as they are using the same namespace and it is not supported to have more than 1 embeds using same namespace</i>
       </div>
+    </div>
+    <div class="inline-embed-container" id="cal-booking-place-monthView">
+      <h3><a href="?only=ns:monthView">Test Month View</a></h3>
+      <div class="place" style="width: 100%"></div>
+    </div>
+    <div class="inline-embed-container" id="cal-booking-place-weekView">
+      <h3><a href="?only=ns:weekView">Test Week View</a></h3>
+      <div class="place" style="width: 100%"></div>
+    </div>
+    <div class="inline-embed-container" id="cal-booking-place-columnView">
+      <h3><a href="?only=ns:columnView">Test Column View</a></h3>
+      <div class="place" style="width: 100%"></div>
     </div>
     <script src="./playground.ts"></script>
   </body>

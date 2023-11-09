@@ -1,30 +1,26 @@
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
+import OrganizationMemberAvatar from "@calcom/features/ee/organizations/components/OrganizationMemberAvatar";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { md } from "@calcom/lib/markdownIt";
 import { telemetryEventTypes, useTelemetry } from "@calcom/lib/telemetry";
 import turndown from "@calcom/lib/turndownService";
 import { trpc } from "@calcom/trpc/react";
+import type { Ensure } from "@calcom/types/utils";
 import { Button, Editor, ImageUploader, Label, showToast } from "@calcom/ui";
-import { Avatar } from "@calcom/ui";
 import { ArrowRight } from "@calcom/ui/components/icon";
-
-import type { IOnboardingPageProps } from "../../../pages/getting-started/[[...step]]";
 
 type FormData = {
   bio: string;
 };
-interface IUserProfileProps {
-  user: IOnboardingPageProps["user"];
-}
 
-const UserProfile = (props: IUserProfileProps) => {
-  const { user } = props;
+const UserProfile = () => {
+  const [user] = trpc.viewer.me.useSuspenseQuery();
   const { t } = useLocale();
-  const avatarRef = useRef<HTMLInputElement>(null!);
+  const avatarRef = useRef<HTMLInputElement>(null);
   const { setValue, handleSubmit, getValues } = useForm<FormData>({
     defaultValues: { bio: user?.bio || "" },
   });
@@ -76,7 +72,7 @@ const UserProfile = (props: IUserProfileProps) => {
 
   async function updateProfileHandler(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const enteredAvatar = avatarRef.current.value;
+    const enteredAvatar = avatarRef.current?.value;
     mutation.mutate({
       avatar: enteredAvatar,
     });
@@ -101,16 +97,19 @@ const UserProfile = (props: IUserProfileProps) => {
     },
   ];
 
+  const organization =
+    user.organization && user.organization.id
+      ? {
+          ...(user.organization as Ensure<typeof user.organization, "id">),
+          slug: user.organization.slug || null,
+          requestedSlug: user.organization.metadata?.requestedSlug || null,
+        }
+      : null;
   return (
     <form onSubmit={onSubmit}>
       <div className="flex flex-row items-center justify-start rtl:justify-end">
         {user && (
-          <Avatar
-            alt={user.username || "user avatar"}
-            gravatarFallbackMd5={user.emailMd5}
-            size="lg"
-            imageSrc={imageSrc}
-          />
+          <OrganizationMemberAvatar size="lg" user={user} previewSrc={imageSrc} organization={organization} />
         )}
         <input
           ref={avatarRef}
@@ -127,14 +126,16 @@ const UserProfile = (props: IUserProfileProps) => {
             id="avatar-upload"
             buttonMsg={t("add_profile_photo")}
             handleAvatarChange={(newAvatar) => {
-              avatarRef.current.value = newAvatar;
+              if (avatarRef.current) {
+                avatarRef.current.value = newAvatar;
+              }
               const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
                 window.HTMLInputElement.prototype,
                 "value"
               )?.set;
               nativeInputValueSetter?.call(avatarRef.current, newAvatar);
               const ev2 = new Event("input", { bubbles: true });
-              avatarRef.current.dispatchEvent(ev2);
+              avatarRef.current?.dispatchEvent(ev2);
               updateProfileHandler(ev2 as unknown as FormEvent<HTMLFormElement>);
               setImageSrc(newAvatar);
             }}

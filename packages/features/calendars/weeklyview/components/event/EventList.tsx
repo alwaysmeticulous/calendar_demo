@@ -1,4 +1,4 @@
-import shallow from "zustand/shallow";
+import { shallow } from "zustand/shallow";
 
 import dayjs from "@calcom/dayjs";
 
@@ -23,7 +23,7 @@ export function EventList({ day }: Props) {
     <>
       {events
         .filter((event) => {
-          return dayjs(event.start).isSame(day, "day") && !event.allDay; // Filter all events that are not allDay and that are on the current day
+          return dayjs(event.start).isSame(day, "day") && !event.options?.allDay; // Filter all events that are not allDay and that are on the current day
         })
         .map((event, idx, eventsArray) => {
           let width = 90;

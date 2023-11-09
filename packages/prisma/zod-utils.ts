@@ -1,10 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import type { UnitTypeLongPlural } from "dayjs";
-import { pick } from "lodash";
 import z, { ZodNullable, ZodObject, ZodOptional } from "zod";
 
 /* eslint-disable no-underscore-dangle */
 import type {
+  AnyZodObject,
   objectInputType,
   objectOutputType,
   ZodNullableDef,
@@ -15,7 +15,10 @@ import type {
 
 import { appDataSchemas } from "@calcom/app-store/apps.schemas.generated";
 import dayjs from "@calcom/dayjs";
-import { fieldsSchema as formBuilderFieldsSchema } from "@calcom/features/form-builder/FormBuilderFieldsSchema";
+import { isPasswordValid } from "@calcom/features/auth/lib/isPasswordValid";
+import type { FieldType as FormBuilderFieldType } from "@calcom/features/form-builder/schema";
+import { fieldsSchema as formBuilderFieldsSchema } from "@calcom/features/form-builder/schema";
+import { isSupportedTimeZone } from "@calcom/lib/date-fns";
 import { slugify } from "@calcom/lib/slugify";
 import { EventTypeCustomInputType } from "@calcom/prisma/enums";
 
@@ -29,6 +32,39 @@ export enum Frequency {
   MINUTELY = 5,
   SECONDLY = 6,
 }
+
+export enum BookerLayouts {
+  MONTH_VIEW = "month_view",
+  WEEK_VIEW = "week_view",
+  COLUMN_VIEW = "column_view",
+}
+
+export const bookerLayoutOptions = [
+  BookerLayouts.MONTH_VIEW,
+  BookerLayouts.WEEK_VIEW,
+  BookerLayouts.COLUMN_VIEW,
+];
+
+const layoutOptions = z.union([
+  z.literal(bookerLayoutOptions[0]),
+  z.literal(bookerLayoutOptions[1]),
+  z.literal(bookerLayoutOptions[2]),
+]);
+
+export const bookerLayouts = z
+  .object({
+    enabledLayouts: z.array(layoutOptions),
+    defaultLayout: layoutOptions,
+  })
+  .nullable();
+
+export const defaultBookerLayoutSettings = {
+  defaultLayout: BookerLayouts.MONTH_VIEW,
+  // if the user has no explicit layouts set (not in user profile and not in event settings), all layouts are enabled.
+  enabledLayouts: bookerLayoutOptions,
+};
+
+export type BookerLayoutSettings = z.infer<typeof bookerLayouts>;
 
 export const RequiresConfirmationThresholdUnits: z.ZodType<UnitTypeLongPlural> = z.enum(["hours", "minutes"]);
 
@@ -67,19 +103,28 @@ export const EventTypeMetaDataSchema = z
         useHostSchedulesForTeamEvent: z.boolean().optional(),
       })
       .optional(),
+    bookerLayouts: bookerLayouts.optional(),
   })
   .nullable();
 
 export const eventTypeBookingFields = formBuilderFieldsSchema;
-export const BookingFieldType = eventTypeBookingFields.element.shape.type.Enum;
-export type BookingFieldType = typeof BookingFieldType extends z.Values<infer T> ? T[number] : never;
+export const BookingFieldTypeEnum = eventTypeBookingFields.element.shape.type.Enum;
+export type BookingFieldType = FormBuilderFieldType;
 
 // Validation of user added bookingFields' responses happen using `getBookingResponsesSchema` which requires `eventType`.
 // So it is a dynamic validation and thus entire validation can't exist here
+// Note that this validation runs to validate prefill params as well, so it should consider that partial values can be there. e.g. `name` might be empty string
 export const bookingResponses = z
   .object({
     email: z.string(),
-    name: z.string(),
+    //TODO: Why don't we move name out of bookingResponses and let it be handled like user fields?
+    name: z.union([
+      z.string(),
+      z.object({
+        firstName: z.string(),
+        lastName: z.string().optional(),
+      }),
+    ]),
     guests: z.array(z.string()).optional(),
     notes: z.string().optional(),
     location: z
@@ -102,6 +147,8 @@ export const eventTypeLocations = z.array(
     link: z.string().url().optional(),
     displayLocationPublicly: z.boolean().optional(),
     hostPhoneNumber: z.string().optional(),
+    credentialId: z.number().optional(),
+    teamName: z.string().optional(),
   })
 );
 
@@ -158,23 +205,26 @@ export const stringOrNumber = z.union([
   z.number().int(),
 ]);
 
-export const stringToDayjs = z.string().transform((val) => dayjs(val));
+export const stringToDayjs = z.string().transform((val) => {
+  const matches = val.match(/([+-]\d{2}:\d{2})$/);
+  const timezone = matches ? matches[1] : "+00:00";
+  return dayjs(val).utcOffset(timezone);
+});
 
 export const bookingCreateBodySchema = z.object({
-  end: z.string(),
+  end: z.string().optional(),
   eventTypeId: z.number(),
   eventTypeSlug: z.string().optional(),
   rescheduleUid: z.string().optional(),
   recurringEventId: z.string().optional(),
   start: z.string(),
-  timeZone: z.string(),
+  timeZone: z.string().refine((value: string) => isSupportedTimeZone(value), { message: "Invalid timezone" }),
   user: z.union([z.string(), z.array(z.string())]).optional(),
   language: z.string(),
   bookingUid: z.string().optional(),
   metadata: z.record(z.string()),
   hasHashedBookingLink: z.boolean().optional(),
   hashedLink: z.string().nullish(),
-  ethSignature: z.string().optional(),
   seatReferenceUid: z.string().optional(),
 });
 
@@ -269,6 +319,7 @@ export const userMetadata = z
         appLink: z.string().optional(),
       })
       .optional(),
+    defaultBookerLayouts: bookerLayouts.optional(),
   })
   .nullable();
 
@@ -278,6 +329,10 @@ export const teamMetadataSchema = z
     paymentId: z.string(),
     subscriptionId: z.string().nullable(),
     subscriptionItemId: z.string().nullable(),
+    isOrganization: z.boolean().nullable(),
+    isOrganizationVerified: z.boolean().nullable(),
+    isOrganizationConfigured: z.boolean().nullable(),
+    orgAutoAcceptEmail: z.string().nullable(),
   })
   .partial()
   .nullable();
@@ -475,11 +530,13 @@ export const optionToValueSchema = <T extends z.ZodTypeAny>(valueSchema: T) =>
  * @url https://github.com/colinhacks/zod/discussions/1655#discussioncomment-4367368
  */
 export const getParserWithGeneric =
-  <T extends z.ZodTypeAny>(valueSchema: T) =>
+  <T extends AnyZodObject>(valueSchema: T) =>
   <Data>(data: Data) => {
-    type Output = z.infer<typeof valueSchema>;
+    type Output = z.infer<T>;
+    type SimpleFormValues = string | number | null | undefined;
     return valueSchema.parse(data) as {
-      [key in keyof Data]: key extends keyof Output ? Output[key] : Data[key];
+      // TODO: Invesitage why this broke on zod 3.22.2 upgrade
+      [key in keyof Data]: Data[key] extends SimpleFormValues ? Data[key] : Output[key];
     };
   };
 export const sendDailyVideoRecordingEmailsSchema = z.object({
@@ -519,6 +576,7 @@ export const allManagedEventTypeProps: { [k in keyof Omit<Prisma.EventTypeSelect
   successRedirectUrl: true,
   seatsPerTimeSlot: true,
   seatsShowAttendees: true,
+  seatsShowAvailabilityCount: true,
   periodType: true,
   hashedLink: true,
   webhooks: true,
@@ -537,5 +595,46 @@ export const allManagedEventTypeProps: { [k in keyof Omit<Prisma.EventTypeSelect
 // All properties that are defined as unlocked based on all managed props
 // Eventually this is going to be just a default and the user can change the config through the UI
 export const unlockedManagedEventTypeProps = {
-  ...pick(allManagedEventTypeProps, ["locations", "scheduleId", "destinationCalendar"]),
+  locations: allManagedEventTypeProps.locations,
+  scheduleId: allManagedEventTypeProps.scheduleId,
+  destinationCalendar: allManagedEventTypeProps.destinationCalendar,
 };
+
+// The PR at https://github.com/colinhacks/zod/pull/2157 addresses this issue and improves email validation
+// I introduced this refinement(to be used with z.email()) as a short term solution until we upgrade to a zod
+// version that will include updates in the above PR.
+export const emailSchemaRefinement = (value: string) => {
+  const emailRegex = /^([A-Z0-9_+-]+\.?)*[A-Z0-9_+-]@([A-Z0-9][A-Z0-9-]*\.)+[A-Z]{2,}$/i;
+  return emailRegex.test(value);
+};
+
+export const signupSchema = z.object({
+  username: z.string().refine((value) => !value.includes("+"), {
+    message: "String should not contain a plus symbol (+).",
+  }),
+  email: z.string().email(),
+  password: z.string().superRefine((data, ctx) => {
+    const isStrict = false;
+    const result = isPasswordValid(data, true, isStrict);
+    Object.keys(result).map((key: string) => {
+      if (!result[key as keyof typeof result]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: key,
+        });
+      }
+    });
+  }),
+  language: z.string().optional(),
+  token: z.string().optional(),
+});
+
+export const ZVerifyCodeInputSchema = z.object({
+  email: z.string().email(),
+  code: z.string(),
+});
+
+export type ZVerifyCodeInputSchema = z.infer<typeof ZVerifyCodeInputSchema>;
+
+export const coerceToDate = z.coerce.date();

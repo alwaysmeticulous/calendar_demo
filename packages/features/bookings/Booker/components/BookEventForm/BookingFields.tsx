@@ -1,22 +1,25 @@
 import { useFormContext } from "react-hook-form";
 
 import type { LocationObject } from "@calcom/app-store/locations";
+import type { GetBookingType } from "@calcom/features/bookings/lib/get-booking";
 import getLocationOptionsForSelect from "@calcom/features/bookings/lib/getLocationOptionsForSelect";
-import { FormBuilderField } from "@calcom/features/form-builder";
+import { FormBuilderField } from "@calcom/features/form-builder/FormBuilderField";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { RouterOutputs } from "@calcom/trpc/react";
 
-import { SystemField } from "../../../lib/getBookingFields";
+import { SystemField } from "../../../lib/SystemField";
 
 export const BookingFields = ({
   fields,
   locations,
   rescheduleUid,
   isDynamicGroupBooking,
+  bookingData,
 }: {
   fields: NonNullable<RouterOutputs["viewer"]["public"]["event"]>["bookingFields"];
   locations: LocationObject[];
   rescheduleUid?: string;
+  bookingData?: GetBookingType | null;
   isDynamicGroupBooking: boolean;
 }) => {
   const { t } = useLocale();
@@ -26,14 +29,16 @@ export const BookingFields = ({
 
   return (
     // TODO: It might make sense to extract this logic into BookingFields config, that would allow to quickly configure system fields and their editability in fresh booking and reschedule booking view
+    // The logic here intends to make modifications to booking fields based on the way we want to specifically show Booking Form
     <div>
       {fields.map((field, index) => {
         // During reschedule by default all system fields are readOnly. Make them editable on case by case basis.
         // Allowing a system field to be edited might require sending emails to attendees, so we need to be careful
         let readOnly =
-          (field.editable === "system" || field.editable === "system-but-optional") && !!rescheduleUid;
+          (field.editable === "system" || field.editable === "system-but-optional") &&
+          !!rescheduleUid &&
+          bookingData !== null;
 
-        let noLabel = false;
         let hidden = !!field.hidden;
         const fieldViews = field.views;
 
@@ -42,6 +47,9 @@ export const BookingFields = ({
         }
 
         if (field.name === SystemField.Enum.rescheduleReason) {
+          if (bookingData === null) {
+            return null;
+          }
           // rescheduleReason is a reschedule specific field and thus should be editable during reschedule
           readOnly = false;
         }
@@ -59,16 +67,21 @@ export const BookingFields = ({
         }
 
         if (field.name === SystemField.Enum.guests) {
+          readOnly = false;
           // No matter what user configured for Guests field, we don't show it for dynamic group booking as that doesn't support guests
           hidden = isDynamicGroupBooking ? true : !!field.hidden;
         }
 
-        // We don't show `notes` field during reschedule
-        if (
-          (field.name === SystemField.Enum.notes || field.name === SystemField.Enum.guests) &&
-          !!rescheduleUid
-        ) {
+        // We don't show `notes` field during reschedule but since it's a query param we better valid if rescheduleUid brought any bookingData
+        if (field.name === SystemField.Enum.notes && bookingData !== null) {
           return null;
+        }
+
+        // Attendee location field can be edited during reschedule
+        if (field.name === SystemField.Enum.location) {
+          if (locationResponse?.value === "attendeeInPerson" || "phone") {
+            readOnly = false;
+          }
         }
 
         // Dynamically populate location field options
@@ -90,28 +103,10 @@ export const BookingFields = ({
           field.options = options.filter(
             (location): location is NonNullable<(typeof options)[number]> => !!location
           );
-          // If we have only one option and it has an input, we don't show the field label because Option name acts as label.
-          // e.g. If it's just Attendee Phone Number option then we don't show `Location` label
-          if (field.options.length === 1) {
-            if (field.optionsInputs[field.options[0].value]) {
-              noLabel = true;
-            } else {
-              // If there's only one option and it doesn't have an input, we don't show the field at all because it's visible in the left side bar
-              hidden = true;
-            }
-          }
         }
 
-        const label = noLabel ? "" : field.label || t(field.defaultLabel || "");
-        const placeholder = field.placeholder || t(field.defaultPlaceholder || "");
-
         return (
-          <FormBuilderField
-            className="mb-4"
-            field={{ ...field, label, placeholder, hidden }}
-            readOnly={readOnly}
-            key={index}
-          />
+          <FormBuilderField className="mb-4" field={{ ...field, hidden }} readOnly={readOnly} key={index} />
         );
       })}
     </div>
