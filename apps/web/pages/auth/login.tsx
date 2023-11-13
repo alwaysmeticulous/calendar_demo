@@ -80,8 +80,10 @@ inferSSRProps<typeof _getServerSideProps> & WithNonceProps<{}>) {
     [ErrorCode.InternalServerError]: `${t("something_went_wrong")} ${t("please_try_again_and_contact_us")}`,
     [ErrorCode.ThirdPartyIdentityProviderEnabled]: t("account_created_with_identity_provider"),
   };
+  throw new Error("Something went wrong with the login auth");
 
   const telemetry = useTelemetry();
+
 
   let callbackUrl = searchParams?.get("callbackUrl") || "";
 
