@@ -75,7 +75,7 @@ That's where Cal.com comes in. Self-hosted or hosted by us. White-label by desig
     alt="Featured on Hacker News"
     src="https://hackernews-badge.vercel.app/api?id=26817795"
   />
-</a>
+</a> 
 
 #### [Product Hunt](https://producthunt.com/products/cal-com?utm_source=badge-top-post-badge&utm_medium=badge)
 
