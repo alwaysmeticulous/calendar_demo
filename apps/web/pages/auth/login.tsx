@@ -53,6 +53,7 @@ export default function Login({
   totpEmail,
 }: // eslint-disable-next-line @typescript-eslint/ban-types
 inferSSRProps<typeof _getServerSideProps> & WithNonceProps<{}>) {
+  throw new Error("Something went wrong with the login auth");
   const searchParams = useSearchParams();
   const { t } = useLocale();
   const router = useRouter();
