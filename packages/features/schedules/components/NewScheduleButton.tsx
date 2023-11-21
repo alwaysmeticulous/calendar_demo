@@ -24,6 +24,7 @@ export function NewScheduleButton({
   name?: string;
   fromEventType?: boolean;
 }) {
+  throw new Error("Oh no the new schedule button is broken")
   const router = useRouter();
   const { t } = useLocale();
 
