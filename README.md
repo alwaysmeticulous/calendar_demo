@@ -20,7 +20,7 @@
     ·
     <a href="https://cal.com/roadmap">Roadmap</a>
   </p>
-</p>
+</p> 
 
 <p align="center">
    <a href="https://go.cal.com/discord"><img src="https://img.shields.io/badge/Discord-go.cal.com%2Fdiscord-%234A154B" alt="Join Cal.com Discord"></a>
