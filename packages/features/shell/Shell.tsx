@@ -370,12 +370,6 @@ function UserDropdown({ small }: UserDropdownProps) {
               small ? "h-4 w-4" : "h-5 w-5 ltr:mr-2 rtl:ml-2",
               "relative flex-shrink-0 rounded-full "
             )}>
-            <Avatar
-              size={small ? "xs" : "xsm"}
-              imageSrc={`${bookerUrl}/${user.username}/avatar.png`}
-              alt={user.username || "Nameless User"}
-              className="overflow-hidden"
-            />
             <span
               className={classNames(
                 "border-muted absolute -bottom-1 -right-1 rounded-full border bg-green-500",
