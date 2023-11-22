@@ -35,6 +35,7 @@ export function NewScheduleButton({
 
   const createMutation = trpc.viewer.availability.schedule.create.useMutation({
     onSuccess: async ({ schedule }) => {
+      throw new Error("Oh no! Something has gone wrong!");
       await router.push(`/availability/${schedule.id}${fromEventType ? "?fromEventType=true" : ""}`);
       showToast(t("schedule_created_successfully", { scheduleName: schedule.name }), "success");
       utils.viewer.availability.list.setData(undefined, (data) => {
