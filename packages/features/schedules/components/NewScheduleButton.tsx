@@ -36,10 +36,11 @@ export function NewScheduleButton({
   const createMutation = trpc.viewer.availability.schedule.create.useMutation({
     onSuccess: async ({ schedule }) => {
       await router.push(`/availability/${schedule.id}${fromEventType ? "?fromEventType=true" : ""}`);
+      throw new Error("Oh no, an error!");
       showToast(t("schedule_created_successfully", { scheduleName: schedule.name }), "success");
       utils.viewer.availability.list.setData(undefined, (data) => {
         const newSchedule = { ...schedule, isDefault: false, availability: [] };
-        if (data)
+        if (!data)
           return {
             schedules: [newSchedule],
           };
