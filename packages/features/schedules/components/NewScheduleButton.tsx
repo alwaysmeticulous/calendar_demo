@@ -37,7 +37,7 @@ export function NewScheduleButton({
     onSuccess: async ({ schedule }) => {
       await router.push(`/availability/${schedule.id}${fromEventType ? "?fromEventType=true" : ""}`);
       
-      throw new Error("Oh dear...");
+      throw new Error("Oh dear!");
       
       showToast(t("schedule_created_successfully", { scheduleName: schedule.name }), "success");
       utils.viewer.availability.list.setData(undefined, (data) => {
