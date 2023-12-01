@@ -20,7 +20,7 @@ const EditableHeading = function EditableHeading({
       className="group pointer-events-none relative truncate sm:pointer-events-auto"
       onClick={enableEditing}>
       <div className="flex cursor-pointer items-center">
-        <label className="min-w-8 relative inline-block">
+        <label className="min-w-8 relative inline-block p-4">
           <span className="whitespace-pre text-xl tracking-normal text-transparent">{value}&nbsp;</span>
           {!isEditing && isReady && (
             <Edit2 className=" text-subtle group-hover:text-subtle -mt-px ml-1 inline  h-3 w-3" />
