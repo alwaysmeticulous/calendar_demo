@@ -45,6 +45,8 @@ export default function InsightsPage() {
   return (
     <div>
       <ShellMain heading="Insights" subtitle={t("insights_subtitle")}>
+        <br/>
+        <br/>
         <UpgradeTip
           title={t("make_informed_decisions")}
           description={t("make_informed_decisions_description")}
