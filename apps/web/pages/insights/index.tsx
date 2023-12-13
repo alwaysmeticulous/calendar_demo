@@ -19,7 +19,7 @@ import { Button, ButtonGroup } from "@calcom/ui";
 import { RefreshCcw, UserPlus, Users } from "@calcom/ui/components/icon";
  
 import PageWrapper from "@components/PageWrapper";
-
+ 
 export default function InsightsPage() {
   const { t } = useLocale();
   const { data: user } = trpc.viewer.me.useQuery();
