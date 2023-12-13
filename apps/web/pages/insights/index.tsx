@@ -23,7 +23,7 @@ import PageWrapper from "@components/PageWrapper";
 export default function InsightsPage() {
   const { t } = useLocale();
   const { data: user } = trpc.viewer.me.useQuery();
-
+ 
   const features = [
     {
       icon: <Users className="h-5 w-5" />,
