@@ -95,6 +95,9 @@ export default function InsightsPage() {
             </FiltersProvider>
           )}
         </UpgradeTip>
+         <br/>
+         <br/>
+         <br/>
       </ShellMain>
        <ShellMain heading="Insights" subtitle={t("insights_subtitle")}>
         <UpgradeTip
