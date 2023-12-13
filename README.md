@@ -11,7 +11,7 @@
     <br />
     <a href="https://cal.com"><strong>Learn more »</strong></a>
     <br />
-    <br />
+    <br /> 
     <a href="https://go.cal.com/discord">Discord</a>
     ·
     <a href="https://cal.com">Website</a>
