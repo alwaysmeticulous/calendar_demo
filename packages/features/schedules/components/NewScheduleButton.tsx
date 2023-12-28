@@ -86,7 +86,7 @@ export function NewScheduleButton({
           <DialogFooter>
             <DialogClose />
             <Button type="submit" loading={createMutation.isLoading}>
-              {t("continue")}
+              {t("add_new_schedule")}
             </Button>
           </DialogFooter>
         </Form>
