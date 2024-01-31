@@ -239,7 +239,7 @@ export const FormBuilder = function FormBuilder({
             color="minimal"
             data-testid="add-field"
             onClick={addField}
-            className="mt-8"
+            className="mt-4 bg-green-400 text-white"
             StartIcon={Plus}>
             {addFieldLabel}
           </Button>
