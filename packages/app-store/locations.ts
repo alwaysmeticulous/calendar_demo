@@ -162,6 +162,7 @@ const translateAbleKeys = [
   "attendee_phone_number",
   "link_meeting",
   "organizer_phone_number",
+  "organizer_default_conferencing_app",
 ];
 
 export type LocationObject = {
@@ -426,4 +427,13 @@ export const getTranslatedLocation = (
     : locationKey;
 
   return translatedLocation;
+};
+
+export const getOrganizerInputLocationTypes = () => {
+  const result: DefaultEventLocationType["type"] | EventLocationTypeFromApp["type"][] = [];
+
+  const locations = locationsTypes.filter((location) => !!location.organizerInputType);
+  locations?.forEach((l) => result.push(l.type));
+
+  return result;
 };

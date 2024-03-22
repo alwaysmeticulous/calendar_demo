@@ -53,7 +53,7 @@ const VerticalTabItem = ({
             target={props.isExternalLink ? "_blank" : "_self"}
             className={classNames(
               props.textClassNames || "text-default text-sm font-medium leading-none",
-              "min-h-8 hover:bg-subtle [&[aria-current='page']]:bg-emphasis [&[aria-current='page']]:text-emphasis group-hover:text-default group flex w-64 flex-row items-center rounded-md px-3 py-[10px]",
+              "min-h-8 hover:bg-subtle [&[aria-current='page']]:bg-emphasis [&[aria-current='page']]:text-emphasis group-hover:text-default group flex w-64 flex-row items-center rounded-md px-3 py-[10px] transition",
               props.disabled && "pointer-events-none !opacity-30",
               (isChild || !props.icon) && "ml-7 w-auto ltr:mr-5 rtl:ml-5",
               !info ? "h-6" : "h-14",
@@ -78,7 +78,11 @@ const VerticalTabItem = ({
                 {props.isExternalLink ? <ExternalLink data-testid="external-link" /> : null}
               </span>
               {info && (
-                <Skeleton as="p" title={t(info)} className="max-w-44 mt-1 truncate text-xs font-normal">
+                <Skeleton
+                  data-testid="apps-info"
+                  as="p"
+                  title={t(info)}
+                  className="max-w-44 mt-1 truncate text-xs font-normal">
                   {t(info)}
                 </Skeleton>
               )}

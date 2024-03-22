@@ -5,7 +5,6 @@ import type { Dayjs } from "@calcom/dayjs";
 import dayjs from "@calcom/dayjs";
 import { yyyymmdd } from "@calcom/lib/date-fns";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
-import useMediaQuery from "@calcom/lib/hooks/useMediaQuery";
 import type { WorkingHours } from "@calcom/types/schedule";
 import {
   Dialog,
@@ -28,12 +27,14 @@ const DateOverrideForm = ({
   workingHours,
   excludedDates,
   onChange,
+  userTimeFormat,
 }: {
   workingHours?: WorkingHours[];
   onChange: (newValue: TimeRange[]) => void;
   excludedDates: string[];
   value?: TimeRange[];
   onClose?: () => void;
+  userTimeFormat: number | null;
 }) => {
   const [browsingDate, setBrowsingDate] = useState<Dayjs>();
   const { t, i18n, isLocaleReady } = useLocale();
@@ -82,21 +83,22 @@ const DateOverrideForm = ({
 
   const form = useForm({
     values: {
-      range: value
-        ? value.map((range) => ({
-            start: new Date(
-              dayjs
-                .utc()
-                .hour(range.start.getUTCHours())
-                .minute(range.start.getUTCMinutes())
-                .second(0)
-                .format()
-            ),
-            end: new Date(
-              dayjs.utc().hour(range.end.getUTCHours()).minute(range.end.getUTCMinutes()).second(0).format()
-            ),
-          }))
-        : defaultRanges,
+      range:
+        value && value[0].start.valueOf() !== value[0].end.valueOf()
+          ? value.map((range) => ({
+              start: new Date(
+                dayjs
+                  .utc()
+                  .hour(range.start.getUTCHours())
+                  .minute(range.start.getUTCMinutes())
+                  .second(0)
+                  .format()
+              ),
+              end: new Date(
+                dayjs.utc().hour(range.end.getUTCHours()).minute(range.end.getUTCMinutes()).second(0).format()
+              ),
+            }))
+          : defaultRanges,
     },
   });
 
@@ -128,7 +130,7 @@ const DateOverrideForm = ({
             ? selectedDates.map((date) => {
                 return {
                   start: date.utc(true).startOf("day").toDate(),
-                  end: date.utc(true).startOf("day").add(1, "day").toDate(),
+                  end: date.utc(true).startOf("day").toDate(),
                 };
               })
             : datesInRanges
@@ -163,7 +165,7 @@ const DateOverrideForm = ({
                     {t("date_overrides_unavailable")}
                   </p>
                 ) : (
-                  <DayRanges name="range" />
+                  <DayRanges name="range" userTimeFormat={userTimeFormat} />
                 )}
               </div>
               <Switch
@@ -201,6 +203,7 @@ const DateOverrideForm = ({
 const DateOverrideInputDialog = ({
   Trigger,
   excludedDates = [],
+  userTimeFormat,
   ...passThroughProps
 }: {
   workingHours: WorkingHours[];
@@ -208,24 +211,19 @@ const DateOverrideInputDialog = ({
   Trigger: React.ReactNode;
   onChange: (newValue: TimeRange[]) => void;
   value?: TimeRange[];
+  userTimeFormat: number | null;
 }) => {
-  const isMobile = useMediaQuery("(max-width: 768px)");
   const [open, setOpen] = useState(false);
-  {
-    /* enableOverflow is used to allow overflow when there are too many overrides to show on mobile.
-       ref:- https://github.com/calcom/cal.com/pull/6215
-      */
-  }
-  const enableOverflow = isMobile;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{Trigger}</DialogTrigger>
 
-      <DialogContent enableOverflow={enableOverflow} size="md" className="p-0">
+      <DialogContent enableOverflow={true} size="md" className="p-0">
         <DateOverrideForm
           excludedDates={excludedDates}
           {...passThroughProps}
           onClose={() => setOpen(false)}
+          userTimeFormat={userTimeFormat}
         />
       </DialogContent>
     </Dialog>

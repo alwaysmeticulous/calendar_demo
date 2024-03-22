@@ -1,6 +1,6 @@
+import { useIsPlatform } from "@calcom/atoms/monorepo";
 import { SchedulingType } from "@calcom/prisma/enums";
-import { UserAvatarGroup } from "@calcom/web/components/ui/avatar/UserAvatarGroup";
-import { UserAvatarGroupWithOrg } from "@calcom/web/components/ui/avatar/UserAvatarGroupWithOrg";
+import { UserAvatarGroup, UserAvatarGroupWithOrg } from "@calcom/ui";
 
 import type { PublicEvent } from "../../types";
 
@@ -16,8 +16,9 @@ export interface EventMembersProps {
 }
 
 export const EventMembers = ({ schedulingType, users, profile, entity }: EventMembersProps) => {
+  const isPlatform = useIsPlatform();
   const showMembers = schedulingType !== SchedulingType.ROUND_ROBIN;
-  const shownUsers = showMembers ? users : [];
+  const shownUsers = showMembers && !isPlatform ? users : [];
 
   // In some cases we don't show the user's names, but only show the profile name.
   const showOnlyProfileName =
@@ -41,7 +42,7 @@ export const EventMembers = ({ schedulingType, users, profile, entity }: EventMe
         <UserAvatarGroup size="sm" className="border-muted" users={shownUsers} />
       )}
 
-      <p className="text-subtle text-sm font-semibold">
+      <p className="text-subtle mt-2 text-sm font-semibold">
         {showOnlyProfileName
           ? profile.name
           : shownUsers

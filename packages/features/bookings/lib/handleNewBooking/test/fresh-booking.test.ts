@@ -12,7 +12,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { describe, expect } from "vitest";
 
 import { appStoreMetadata } from "@calcom/app-store/appStoreMetaData";
-import { WEBAPP_URL } from "@calcom/lib/constants";
+import { WEBSITE_URL, WEBAPP_URL } from "@calcom/lib/constants";
+import { ErrorCode } from "@calcom/lib/errorCodes";
 import { resetTestEmails } from "@calcom/lib/testEmails";
 import { BookingStatus } from "@calcom/prisma/enums";
 import { test } from "@calcom/web/test/fixtures/fixtures";
@@ -20,6 +21,7 @@ import {
   createBookingScenario,
   getDate,
   getGoogleCalendarCredential,
+  getAppleCalendarCredential,
   TestData,
   getOrganizer,
   getBooker,
@@ -37,6 +39,7 @@ import {
   mockVideoAppToCrashOnCreateMeeting,
   BookingLocations,
 } from "@calcom/web/test/utils/bookingScenario/bookingScenario";
+import { createMockNextJsRequest } from "@calcom/web/test/utils/bookingScenario/createMockNextJsRequest";
 import {
   expectWorkflowToBeTriggered,
   expectSuccessfulBookingCreationEmails,
@@ -48,12 +51,12 @@ import {
   expectBookingPaymentIntiatedWebhookToHaveBeenFired,
   expectBrokenIntegrationEmails,
   expectSuccessfulCalendarEventCreationInCalendar,
+  expectWorkflowToBeNotTriggered,
+  expectICalUIDAsString,
 } from "@calcom/web/test/utils/bookingScenario/expects";
-
-import { createMockNextJsRequest } from "./lib/createMockNextJsRequest";
-import { getMockRequestDataForBooking } from "./lib/getMockRequestDataForBooking";
-import { setupAndTeardown } from "./lib/setupAndTeardown";
-import { testWithAndWithoutOrg } from "./lib/test";
+import { getMockRequestDataForBooking } from "@calcom/web/test/utils/bookingScenario/getMockRequestDataForBooking";
+import { setupAndTeardown } from "@calcom/web/test/utils/bookingScenario/setupAndTeardown";
+import { testWithAndWithoutOrg } from "@calcom/web/test/utils/bookingScenario/test";
 
 export type CustomNextApiRequest = NextApiRequest & Request;
 
@@ -70,7 +73,7 @@ describe("handleNewBooking", () => {
           1. Should create a booking in the database
           2. Should send emails to the booker as well as organizer
           3. Should create a booking in the event's destination calendar
-          3. Should trigger BOOKING_CREATED webhook
+          4. Should trigger BOOKING_CREATED webhook
     `,
       async ({ emails, org }) => {
         const handleNewBooking = (await import("@calcom/features/bookings/lib/handleNewBooking")).default;
@@ -78,6 +81,9 @@ describe("handleNewBooking", () => {
           email: "booker@example.com",
           name: "Booker",
         });
+
+        const organizerOtherEmail = "organizer2@example.com";
+        const organizerDestinationCalendarEmailOnEventType = "organizerEventTypeEmail@example.com";
 
         const organizer = getOrganizer({
           name: "Organizer",
@@ -89,6 +95,7 @@ describe("handleNewBooking", () => {
           destinationCalendar: {
             integration: "google_calendar",
             externalId: "organizer@google-calendar.com",
+            primaryEmail: organizerOtherEmail,
           },
         });
 
@@ -105,11 +112,21 @@ describe("handleNewBooking", () => {
                   appId: null,
                 },
               ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
+                  useEventTypeDestinationCalendarEmail: true,
                   users: [
                     {
                       id: 101,
@@ -118,6 +135,7 @@ describe("handleNewBooking", () => {
                   destinationCalendar: {
                     integration: "google_calendar",
                     externalId: "event-type-1@google-calendar.com",
+                    primaryEmail: organizerDestinationCalendarEmailOnEventType,
                   },
                 },
               ],
@@ -140,12 +158,12 @@ describe("handleNewBooking", () => {
         const calendarMock = mockCalendarToHaveNoBusySlots("googlecalendar", {
           create: {
             id: "MOCKED_GOOGLE_CALENDAR_EVENT_ID",
-            iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
           },
         });
 
         const mockBookingData = getMockRequestDataForBooking({
           data: {
+            user: organizer.username,
             eventTypeId: 1,
             responses: {
               email: booker.email,
@@ -161,6 +179,7 @@ describe("handleNewBooking", () => {
         });
 
         const createdBooking = await handleNewBooking(req);
+
         expect(createdBooking.responses).toContain({
           email: booker.email,
           name: booker.name,
@@ -192,23 +211,31 @@ describe("handleNewBooking", () => {
               meetingUrl: "https://UNUSED_URL",
             },
           ],
+          iCalUID: createdBooking.iCalUID,
         });
 
-        expectWorkflowToBeTriggered();
+        expectWorkflowToBeTriggered({
+          organizer,
+          emails,
+          destinationEmail: organizerDestinationCalendarEmailOnEventType,
+        });
         expectSuccessfulCalendarEventCreationInCalendar(calendarMock, {
           calendarId: "event-type-1@google-calendar.com",
           videoCallUrl: "http://mock-dailyvideo.example.com/meeting-1",
         });
 
+        const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
+
         expectSuccessfulBookingCreationEmails({
           booking: {
             uid: createdBooking.uid!,
-            urlOrigin: org ? org.urlOrigin : WEBAPP_URL,
+            urlOrigin: org ? org.urlOrigin : WEBSITE_URL,
           },
           booker,
           organizer,
           emails,
-          iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
+          iCalUID,
+          destinationEmail: organizerDestinationCalendarEmailOnEventType,
         });
 
         expectBookingCreatedWebhookToHaveBeenFired({
@@ -258,11 +285,20 @@ describe("handleNewBooking", () => {
                   appId: null,
                 },
               ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -289,7 +325,6 @@ describe("handleNewBooking", () => {
             create: {
               id: "GOOGLE_CALENDAR_EVENT_ID",
               uid: "MOCK_ID",
-              iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
             },
           });
 
@@ -341,9 +376,10 @@ describe("handleNewBooking", () => {
                 meetingUrl: "https://UNUSED_URL",
               },
             ],
+            iCalUID: createdBooking.iCalUID,
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeTriggered({ organizer, emails });
           expectSuccessfulCalendarEventCreationInCalendar(calendarMock, {
             videoCallUrl: "http://mock-dailyvideo.example.com/meeting-1",
             // We won't be sending evt.destinationCalendar in this case.
@@ -352,6 +388,8 @@ describe("handleNewBooking", () => {
             calendarId: null,
           });
 
+          const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
+
           expectSuccessfulBookingCreationEmails({
             booking: {
               uid: createdBooking.uid!,
@@ -359,7 +397,7 @@ describe("handleNewBooking", () => {
             booker,
             organizer,
             emails,
-            iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
+            iCalUID,
           });
           expectBookingCreatedWebhookToHaveBeenFired({
             booker,
@@ -410,11 +448,20 @@ describe("handleNewBooking", () => {
                   appId: null,
                 },
               ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -440,7 +487,6 @@ describe("handleNewBooking", () => {
             create: {
               uid: "MOCK_ID",
               id: "GOOGLE_CALENDAR_EVENT_ID",
-              iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
             },
           });
 
@@ -492,13 +538,16 @@ describe("handleNewBooking", () => {
                 meetingUrl: "https://UNUSED_URL",
               },
             ],
+            iCalUID: createdBooking.iCalUID,
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeTriggered({ organizer, emails });
           expectSuccessfulCalendarEventCreationInCalendar(calendarMock, {
             calendarId: "organizer@google-calendar.com",
             videoCallUrl: "http://mock-dailyvideo.example.com/meeting-1",
           });
+
+          const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
 
           expectSuccessfulBookingCreationEmails({
             booking: {
@@ -507,7 +556,7 @@ describe("handleNewBooking", () => {
             booker,
             organizer,
             emails,
-            iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
+            iCalUID,
           });
 
           expectBookingCreatedWebhookToHaveBeenFired({
@@ -523,7 +572,7 @@ describe("handleNewBooking", () => {
 
       test(
         `an error in creating a calendar event should not stop the booking creation - Current behaviour is wrong as the booking is created but no-one is notified of it`,
-        async ({}) => {
+        async ({ emails }) => {
           const handleNewBooking = (await import("@calcom/features/bookings/lib/handleNewBooking")).default;
           const booker = getBooker({
             email: "booker@example.com",
@@ -554,11 +603,20 @@ describe("handleNewBooking", () => {
                   appId: null,
                 },
               ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -617,7 +675,7 @@ describe("handleNewBooking", () => {
             ],
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeTriggered({ organizer, emails });
 
           // FIXME: We should send Broken Integration emails on calendar event creation failure
           // expectCalendarEventCreationFailureEmails({ booker, organizer, emails });
@@ -666,11 +724,20 @@ describe("handleNewBooking", () => {
                   appId: null,
                 },
               ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -704,7 +771,6 @@ describe("handleNewBooking", () => {
             create: {
               uid: "MOCK_ID",
               id: "GOOGLE_CALENDAR_EVENT_ID",
-              iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
             },
           });
 
@@ -756,9 +822,167 @@ describe("handleNewBooking", () => {
                 meetingUrl: "https://UNUSED_URL",
               },
             ],
+            iCalUID: createdBooking.iCalUID,
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeTriggered({ organizer, emails });
+
+          expectSuccessfulCalendarEventCreationInCalendar(calendarMock, {
+            calendarId: "organizer@google-calendar.com",
+            videoCallUrl: "http://mock-dailyvideo.example.com/meeting-1",
+          });
+
+          const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
+
+          expectSuccessfulBookingCreationEmails({
+            booking: {
+              uid: createdBooking.uid!,
+            },
+            booker,
+            organizer,
+            emails,
+            iCalUID,
+          });
+
+          expectBookingCreatedWebhookToHaveBeenFired({
+            booker,
+            organizer,
+            location: BookingLocations.CalVideo,
+            subscriberUrl: "http://my-webhook.example.com",
+            videoCallUrl: `${WEBAPP_URL}/video/${createdBooking.uid}`,
+          });
+        },
+        timeout
+      );
+
+      test(
+        "If destination calendar is there for Google Calendar but there are no Google Calendar credentials but there is an Apple Calendar credential connected, it should create the event in Apple Calendar",
+        async ({ emails }) => {
+          const handleNewBooking = (await import("@calcom/features/bookings/lib/handleNewBooking")).default;
+          const booker = getBooker({
+            email: "booker@example.com",
+            name: "Booker",
+          });
+
+          const organizer = getOrganizer({
+            name: "Organizer",
+            email: "organizer@example.com",
+            id: 101,
+            schedules: [TestData.schedules.IstWorkHours],
+            credentials: [getAppleCalendarCredential()],
+            selectedCalendars: [TestData.selectedCalendars.google],
+            destinationCalendar: {
+              integration: "google_calendar",
+              externalId: "organizer@google-calendar.com",
+            },
+          });
+
+          await createBookingScenario(
+            getScenarioData({
+              webhooks: [
+                {
+                  userId: organizer.id,
+                  eventTriggers: ["BOOKING_CREATED"],
+                  subscriberUrl: "http://my-webhook.example.com",
+                  active: true,
+                  eventTypeId: 1,
+                  appId: null,
+                },
+              ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
+              eventTypes: [
+                {
+                  id: 1,
+                  slotInterval: 30,
+                  length: 30,
+                  users: [
+                    {
+                      id: 101,
+                    },
+                  ],
+                },
+              ],
+              organizer,
+              apps: [TestData.apps["google-calendar"], TestData.apps["daily-video"]],
+            })
+          );
+
+          mockSuccessfulVideoMeetingCreation({
+            metadataLookupKey: "dailyvideo",
+            videoMeetingData: {
+              id: "MOCK_ID",
+              password: "MOCK_PASS",
+              url: `http://mock-dailyvideo.example.com/meeting-1`,
+            },
+          });
+
+          const calendarMock = mockCalendarToHaveNoBusySlots("applecalendar", {
+            create: {
+              uid: "MOCK_ID",
+              id: "MOCKED_APPLE_CALENDAR_EVENT_ID",
+              iCalUID: "MOCKED_APPLE_CALENDAR_ICS_ID",
+            },
+          });
+
+          const mockBookingData = getMockRequestDataForBooking({
+            data: {
+              eventTypeId: 1,
+              responses: {
+                email: booker.email,
+                name: booker.name,
+                location: { optionValue: "", value: BookingLocations.CalVideo },
+              },
+            },
+          });
+
+          const { req } = createMockNextJsRequest({
+            method: "POST",
+            body: mockBookingData,
+          });
+
+          const createdBooking = await handleNewBooking(req);
+          expect(createdBooking.responses).toContain({
+            email: booker.email,
+            name: booker.name,
+          });
+
+          expect(createdBooking).toContain({
+            location: BookingLocations.CalVideo,
+          });
+
+          await expectBookingToBeInDatabase({
+            description: "",
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            uid: createdBooking.uid!,
+            eventTypeId: mockBookingData.eventTypeId,
+            status: BookingStatus.ACCEPTED,
+            references: [
+              {
+                type: appStoreMetadata.dailyvideo.type,
+                uid: "MOCK_ID",
+                meetingId: "MOCK_ID",
+                meetingPassword: "MOCK_PASS",
+                meetingUrl: "http://mock-dailyvideo.example.com/meeting-1",
+              },
+              {
+                type: appStoreMetadata.applecalendar.type,
+                uid: "MOCKED_APPLE_CALENDAR_EVENT_ID",
+                meetingId: "MOCKED_APPLE_CALENDAR_EVENT_ID",
+                meetingPassword: "MOCK_PASSWORD",
+                meetingUrl: "https://UNUSED_URL",
+              },
+            ],
+          });
+
+          expectWorkflowToBeTriggered({ organizer, emails });
           expectSuccessfulCalendarEventCreationInCalendar(calendarMock, {
             calendarId: "organizer@google-calendar.com",
             videoCallUrl: "http://mock-dailyvideo.example.com/meeting-1",
@@ -771,7 +995,7 @@ describe("handleNewBooking", () => {
             booker,
             organizer,
             emails,
-            iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
+            iCalUID: "MOCKED_APPLE_CALENDAR_ICS_ID",
           });
 
           expectBookingCreatedWebhookToHaveBeenFired({
@@ -811,8 +1035,8 @@ describe("handleNewBooking", () => {
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -852,6 +1076,8 @@ describe("handleNewBooking", () => {
           });
           const createdBooking = await handleNewBooking(req);
 
+          const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
+
           expectSuccessfulBookingCreationEmails({
             booking: {
               uid: createdBooking.uid!,
@@ -859,8 +1085,7 @@ describe("handleNewBooking", () => {
             booker,
             organizer,
             emails,
-            // Because no calendar was involved, we don't have an ics UID
-            iCalUID: createdBooking.uid!,
+            iCalUID,
           });
 
           expectBookingCreatedWebhookToHaveBeenFired({
@@ -898,8 +1123,8 @@ describe("handleNewBooking", () => {
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
-                  length: 45,
+                  slotInterval: 30,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -940,7 +1165,7 @@ describe("handleNewBooking", () => {
           });
           await handleNewBooking(req);
 
-          expectBrokenIntegrationEmails({ booker, organizer, emails });
+          expectBrokenIntegrationEmails({ organizer, emails });
 
           expectBookingCreatedWebhookToHaveBeenFired({
             booker,
@@ -949,6 +1174,66 @@ describe("handleNewBooking", () => {
             subscriberUrl,
             videoCallUrl: null,
           });
+        },
+        timeout
+      );
+    });
+
+    describe("Event length check during booking", () => {
+      test(
+        `should fail if the time difference between a booking's start and end times is not equal to the event length.`,
+        async () => {
+          const handleNewBooking = (await import("@calcom/features/bookings/lib/handleNewBooking")).default;
+
+          const booker = getBooker({
+            email: "booker@example.com",
+            name: "Booker",
+          });
+
+          const organizer = getOrganizer({
+            name: "Organizer",
+            email: "organizer@example.com",
+            id: 101,
+            schedules: [TestData.schedules.IstWorkHours],
+          });
+
+          await createBookingScenario(
+            getScenarioData({
+              eventTypes: [
+                {
+                  id: 1,
+                  slotInterval: 30,
+                  length: 30,
+                  users: [
+                    {
+                      id: 101,
+                    },
+                  ],
+                },
+              ],
+              organizer,
+            })
+          );
+
+          const mockBookingData = getMockRequestDataForBooking({
+            data: {
+              start: `${getDate({ dateIncrement: 1 }).dateString}T05:00:00.000Z`,
+              end: `${getDate({ dateIncrement: 1 }).dateString}T05:15:00.000Z`,
+              eventTypeId: 1,
+              responses: {
+                email: booker.email,
+                name: booker.name,
+                location: { optionValue: "", value: "New York" },
+              },
+            },
+          });
+
+          const { req } = createMockNextJsRequest({
+            method: "POST",
+            body: mockBookingData,
+          });
+
+          await expect(async () => await handleNewBooking(req)).rejects.toThrowError("Invalid event length");
         },
         timeout
       );
@@ -983,8 +1268,8 @@ describe("handleNewBooking", () => {
                 eventTypes: [
                   {
                     id: 1,
-                    slotInterval: 45,
-                    length: 45,
+                    slotInterval: 30,
+                    length: 30,
                     users: [
                       {
                         id: 101,
@@ -999,7 +1284,7 @@ describe("handleNewBooking", () => {
                     userId: 101,
                     status: BookingStatus.ACCEPTED,
                     startTime: `${plus1DateString}T05:00:00.000Z`,
-                    endTime: `${plus1DateString}T05:15:00.000Z`,
+                    endTime: `${plus1DateString}T05:30:00.000Z`,
                   },
                 ],
                 organizer,
@@ -1008,7 +1293,7 @@ describe("handleNewBooking", () => {
 
             const mockBookingData = getMockRequestDataForBooking({
               data: {
-                start: `${getDate({ dateIncrement: 1 }).dateString}T04:00:00.000Z`,
+                start: `${getDate({ dateIncrement: 1 }).dateString}T05:00:00.000Z`,
                 end: `${getDate({ dateIncrement: 1 }).dateString}T05:30:00.000Z`,
                 eventTypeId: 1,
                 responses: {
@@ -1025,7 +1310,7 @@ describe("handleNewBooking", () => {
             });
 
             await expect(async () => await handleNewBooking(req)).rejects.toThrowError(
-              "No available users found"
+              ErrorCode.NoAvailableUsersFound
             );
           },
           timeout
@@ -1066,8 +1351,8 @@ describe("handleNewBooking", () => {
                 eventTypes: [
                   {
                     id: 1,
-                    slotInterval: 45,
-                    length: 45,
+                    slotInterval: 30,
+                    length: 30,
                     users: [
                       {
                         id: 101,
@@ -1095,7 +1380,7 @@ describe("handleNewBooking", () => {
 
             const mockBookingData = getMockRequestDataForBooking({
               data: {
-                start: `${getDate({ dateIncrement: 1 }).dateString}T04:00:00.000Z`,
+                start: `${getDate({ dateIncrement: 1 }).dateString}T05:00:00.000Z`,
                 end: `${getDate({ dateIncrement: 1 }).dateString}T05:30:00.000Z`,
                 eventTypeId: 1,
                 responses: {
@@ -1112,7 +1397,7 @@ describe("handleNewBooking", () => {
             });
 
             await expect(async () => await handleNewBooking(req)).rejects.toThrowError(
-              "No available users found"
+              ErrorCode.NoAvailableUsersFound
             );
           },
           timeout
@@ -1155,12 +1440,21 @@ describe("handleNewBooking", () => {
                 appId: null,
               },
             ],
+            workflows: [
+              {
+                userId: organizer.id,
+                trigger: "NEW_EVENT",
+                action: "EMAIL_HOST",
+                template: "REMINDER",
+                activeEventTypeId: 1,
+              },
+            ],
             eventTypes: [
               {
                 id: 1,
-                slotInterval: 45,
+                slotInterval: 30,
                 requiresConfirmation: true,
-                length: 45,
+                length: 30,
                 users: [
                   {
                     id: 101,
@@ -1217,7 +1511,7 @@ describe("handleNewBooking", () => {
             status: BookingStatus.PENDING,
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeNotTriggered({ organizer, emails });
 
           expectBookingRequestedEmails({
             booker,
@@ -1240,7 +1534,7 @@ describe("handleNewBooking", () => {
        * NOTE: We might want to think about making the bookings get ACCEPTED automatically if the booker is the organizer of the event-type. This is a design decision it seems for now.
        */
       test(
-        `should make a fresh booking in PENDING state even when the booker is the organizer of the event-type 
+        `should make a fresh booking in PENDING state even when the booker is the organizer of the event-type
         1. Should create a booking in the database with status PENDING
         2. Should send emails to the booker as well as organizer for booking request and awaiting approval
         3. Should trigger BOOKING_REQUESTED webhook
@@ -1272,12 +1566,21 @@ describe("handleNewBooking", () => {
                 appId: null,
               },
             ],
+            workflows: [
+              {
+                userId: organizer.id,
+                trigger: "NEW_EVENT",
+                action: "EMAIL_HOST",
+                template: "REMINDER",
+                activeEventTypeId: 1,
+              },
+            ],
             eventTypes: [
               {
                 id: 1,
-                slotInterval: 45,
+                slotInterval: 30,
                 requiresConfirmation: true,
-                length: 45,
+                length: 30,
                 users: [
                   {
                     id: 101,
@@ -1333,7 +1636,7 @@ describe("handleNewBooking", () => {
             }),
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeNotTriggered({ organizer, emails });
 
           expectBookingRequestedEmails({
             booker,
@@ -1387,10 +1690,19 @@ describe("handleNewBooking", () => {
                   appId: null,
                 },
               ],
+              workflows: [
+                {
+                  userId: organizer.id,
+                  trigger: "NEW_EVENT",
+                  action: "EMAIL_HOST",
+                  template: "REMINDER",
+                  activeEventTypeId: 1,
+                },
+              ],
               eventTypes: [
                 {
                   id: 1,
-                  slotInterval: 45,
+                  slotInterval: 30,
                   requiresConfirmation: true,
                   metadata: {
                     requiresConfirmationThreshold: {
@@ -1398,7 +1710,7 @@ describe("handleNewBooking", () => {
                       unit: "minutes",
                     },
                   },
-                  length: 45,
+                  length: 30,
                   users: [
                     {
                       id: 101,
@@ -1415,11 +1727,7 @@ describe("handleNewBooking", () => {
             metadataLookupKey: "dailyvideo",
           });
 
-          mockCalendarToHaveNoBusySlots("googlecalendar", {
-            create: {
-              iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
-            },
-          });
+          mockCalendarToHaveNoBusySlots("googlecalendar", {});
 
           const mockBookingData = getMockRequestDataForBooking({
             data: {
@@ -1453,9 +1761,12 @@ describe("handleNewBooking", () => {
             uid: createdBooking.uid!,
             eventTypeId: mockBookingData.eventTypeId,
             status: BookingStatus.ACCEPTED,
+            iCalUID: createdBooking.iCalUID,
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeTriggered({ organizer, emails });
+
+          const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
 
           expectSuccessfulBookingCreationEmails({
             booking: {
@@ -1464,7 +1775,7 @@ describe("handleNewBooking", () => {
             booker,
             organizer,
             emails,
-            iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
+            iCalUID,
           });
 
           expectBookingCreatedWebhookToHaveBeenFired({
@@ -1511,10 +1822,19 @@ describe("handleNewBooking", () => {
                 appId: null,
               },
             ],
+            workflows: [
+              {
+                userId: organizer.id,
+                trigger: "NEW_EVENT",
+                action: "EMAIL_HOST",
+                template: "REMINDER",
+                activeEventTypeId: 1,
+              },
+            ],
             eventTypes: [
               {
                 id: 1,
-                slotInterval: 45,
+                slotInterval: 30,
                 requiresConfirmation: true,
                 metadata: {
                   requiresConfirmationThreshold: {
@@ -1522,7 +1842,7 @@ describe("handleNewBooking", () => {
                     unit: "hours",
                   },
                 },
-                length: 45,
+                length: 30,
                 users: [
                   {
                     id: 101,
@@ -1540,11 +1860,7 @@ describe("handleNewBooking", () => {
             metadataLookupKey: "dailyvideo",
           });
 
-          mockCalendarToHaveNoBusySlots("googlecalendar", {
-            create: {
-              iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
-            },
-          });
+          mockCalendarToHaveNoBusySlots("googlecalendar", {});
 
           const mockBookingData = getMockRequestDataForBooking({
             data: {
@@ -1578,9 +1894,10 @@ describe("handleNewBooking", () => {
             uid: createdBooking.uid!,
             eventTypeId: mockBookingData.eventTypeId,
             status: BookingStatus.PENDING,
+            iCalUID: createdBooking.iCalUID,
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeNotTriggered({ organizer, emails });
 
           expectBookingRequestedEmails({ booker, organizer, emails });
 
@@ -1611,8 +1928,8 @@ describe("handleNewBooking", () => {
           eventTypes: [
             {
               id: 1,
-              slotInterval: 45,
-              length: 45,
+              slotInterval: 30,
+              length: 30,
               users: [
                 {
                   id: 101,
@@ -1686,6 +2003,7 @@ describe("handleNewBooking", () => {
 
         const mockBookingData = getMockRequestDataForBooking({
           data: {
+            user: organizer.username,
             eventTypeId: 1,
             responses: {
               email: booker.email,
@@ -1711,11 +2029,20 @@ describe("handleNewBooking", () => {
               appId: null,
             },
           ],
+          workflows: [
+            {
+              userId: organizer.id,
+              trigger: "NEW_EVENT",
+              action: "EMAIL_HOST",
+              template: "REMINDER",
+              activeEventTypeId: 1,
+            },
+          ],
           eventTypes: [
             {
               id: 1,
-              slotInterval: 45,
-              length: 45,
+              slotInterval: 30,
+              length: 30,
               users: [
                 {
                   id: 101,
@@ -1727,11 +2054,7 @@ describe("handleNewBooking", () => {
           apps: [TestData.apps["google-calendar"], TestData.apps["daily-video"]],
         });
 
-        mockCalendarToHaveNoBusySlots("googlecalendar", {
-          create: {
-            iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
-          },
-        });
+        mockCalendarToHaveNoBusySlots("googlecalendar", {});
         await createBookingScenario(scenarioData);
 
         const createdBooking = await handleNewBooking(req);
@@ -1750,9 +2073,12 @@ describe("handleNewBooking", () => {
           uid: createdBooking.uid!,
           eventTypeId: mockBookingData.eventTypeId,
           status: BookingStatus.ACCEPTED,
+          iCalUID: createdBooking.iCalUID,
         });
 
-        expectWorkflowToBeTriggered();
+        expectWorkflowToBeTriggered({ organizer, emails });
+
+        const iCalUID = expectICalUIDAsString(createdBooking.iCalUID);
 
         expectSuccessfulBookingCreationEmails({
           booking: {
@@ -1761,7 +2087,7 @@ describe("handleNewBooking", () => {
           booker,
           organizer,
           emails,
-          iCalUID: "MOCKED_GOOGLE_CALENDAR_ICS_ID",
+          iCalUID,
         });
         expectBookingCreatedWebhookToHaveBeenFired({
           booker,
@@ -1780,6 +2106,8 @@ describe("handleNewBooking", () => {
             2. Should send email to the booker for Payment request
             3. Should trigger BOOKING_PAYMENT_INITIATED webhook
             4. Once payment is successful, should trigger BOOKING_CREATED webhook
+            5. Workflow should not trigger before payment is made
+            6. Workflow triggers once payment is successful
       `,
         async ({ emails }) => {
           const handleNewBooking = (await import("@calcom/features/bookings/lib/handleNewBooking")).default;
@@ -1807,12 +2135,21 @@ describe("handleNewBooking", () => {
                 appId: null,
               },
             ],
+            workflows: [
+              {
+                userId: organizer.id,
+                trigger: "NEW_EVENT",
+                action: "EMAIL_HOST",
+                template: "REMINDER",
+                activeEventTypeId: 1,
+              },
+            ],
             eventTypes: [
               {
                 id: 1,
                 title: "Paid Event",
                 description: "It's a test Paid Event",
-                slotInterval: 45,
+                slotInterval: 30,
                 requiresConfirmation: false,
                 metadata: {
                   apps: {
@@ -1824,7 +2161,7 @@ describe("handleNewBooking", () => {
                     },
                   },
                 },
-                length: 45,
+                length: 30,
                 users: [
                   {
                     id: 101,
@@ -1883,7 +2220,8 @@ describe("handleNewBooking", () => {
             }),
           });
 
-          expectWorkflowToBeTriggered();
+          expectWorkflowToBeNotTriggered({ organizer, emails });
+
           expectAwaitingPaymentEmails({ organizer, booker, emails });
 
           expectBookingPaymentIntiatedWebhookToHaveBeenFired({
@@ -1905,6 +2243,8 @@ describe("handleNewBooking", () => {
             eventTypeId: mockBookingData.eventTypeId,
             status: BookingStatus.ACCEPTED,
           });
+
+          expectWorkflowToBeTriggered({ organizer, emails });
 
           expectBookingCreatedWebhookToHaveBeenFired({
             booker,
@@ -1954,10 +2294,19 @@ describe("handleNewBooking", () => {
                 appId: null,
               },
             ],
+            workflows: [
+              {
+                userId: organizer.id,
+                trigger: "NEW_EVENT",
+                action: "EMAIL_HOST",
+                template: "REMINDER",
+                activeEventTypeId: 1,
+              },
+            ],
             eventTypes: [
               {
                 id: 1,
-                slotInterval: 45,
+                slotInterval: 30,
                 requiresConfirmation: true,
                 metadata: {
                   apps: {
@@ -1968,7 +2317,7 @@ describe("handleNewBooking", () => {
                     },
                   },
                 },
-                length: 45,
+                length: 30,
                 users: [
                   {
                     id: 101,
@@ -2024,7 +2373,9 @@ describe("handleNewBooking", () => {
             eventTypeId: mockBookingData.eventTypeId,
             status: BookingStatus.PENDING,
           });
-          expectWorkflowToBeTriggered();
+
+          expectWorkflowToBeNotTriggered({ organizer, emails });
+
           expectAwaitingPaymentEmails({ organizer, booker, emails });
           expectBookingPaymentIntiatedWebhookToHaveBeenFired({
             booker,

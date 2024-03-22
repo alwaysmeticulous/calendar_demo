@@ -7,11 +7,13 @@ import * as selects from "@calcom/prisma/selects";
 vi.mock("@calcom/prisma", () => ({
   default: prisma,
   prisma,
+  readonlyPrisma: prisma,
   ...selects,
 }));
 
 const handlePrismockBugs = () => {
   const __updateBooking = prismock.booking.update;
+  const __findFirstOrThrowBooking = prismock.booking.findFirstOrThrow;
   const __findManyWebhook = prismock.webhook.findMany;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   prismock.booking.update = (...rest: any[]) => {
@@ -32,6 +34,14 @@ const handlePrismockBugs = () => {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     return __updateBooking(...rest);
+  };
+
+  prismock.booking.findFirstOrThrow = (...rest: any[]) => {
+    const { where } = rest[0];
+    delete where.NOT;
+    logger.silly("Fixed Prismock bug with using NOT in where clause");
+
+    return __findFirstOrThrowBooking(...rest);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

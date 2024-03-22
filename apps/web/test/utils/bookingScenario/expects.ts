@@ -4,12 +4,11 @@ import type { WebhookTriggerEvents, Booking, BookingReference, DestinationCalend
 import { parse } from "node-html-parser";
 import type { VEvent } from "node-ical";
 import ical from "node-ical";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import "vitest-fetch-mock";
 
 import dayjs from "@calcom/dayjs";
-import { DEFAULT_TIMEZONE_BOOKER } from "@calcom/features/bookings/lib/handleNewBooking/test/lib/getMockRequestDataForBooking";
-import { WEBAPP_URL } from "@calcom/lib/constants";
+import { WEBSITE_URL } from "@calcom/lib/constants";
 import logger from "@calcom/lib/logger";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { BookingStatus } from "@calcom/prisma/enums";
@@ -17,7 +16,8 @@ import type { AppsStatus } from "@calcom/types/Calendar";
 import type { CalendarEvent } from "@calcom/types/Calendar";
 import type { Fixtures } from "@calcom/web/test/fixtures/fixtures";
 
-import type { InputEventType } from "./bookingScenario";
+import type { InputEventType, getOrganizer } from "./bookingScenario";
+import { DEFAULT_TIMEZONE_BOOKER } from "./getMockRequestDataForBooking";
 
 // This is too complex at the moment, I really need to simplify this.
 // Maybe we can replace the exact match with a partial match approach that would be easier to maintain but we would still need Dayjs to do the timezone conversion
@@ -66,8 +66,9 @@ type ExpectedEmail = {
   // };
   ics?: {
     filename: string;
-    iCalUID: string;
+    iCalUID?: string;
     recurrence?: Recurrence;
+    method: string;
   };
   /**
    * Checks that there is no
@@ -96,7 +97,7 @@ expect.extend({
       logger.silly("All Emails", JSON.stringify({ numEmails: emailsToLog.length, emailsToLog }));
       return {
         pass: false,
-        message: () => `No email sent to ${to}`,
+        message: () => `No email sent to ${to}. All emails are ${JSON.stringify(emailsToLog)}`,
       };
     }
     const ics = testEmail.icalEvent;
@@ -105,9 +106,10 @@ expect.extend({
 
     let isToAddressExpected = true;
     const isIcsFilenameExpected = expectedEmail.ics ? ics?.filename === expectedEmail.ics.filename : true;
-    const isIcsUIDExpected = expectedEmail.ics
-      ? !!(icsObject ? icsObject[expectedEmail.ics.iCalUID] : null)
-      : true;
+    const isIcsUIDExpected =
+      expectedEmail.ics && expectedEmail.ics.iCalUID
+        ? !!(icsObject ? icsObject[expectedEmail.ics.iCalUID] : null)
+        : true;
     const emailDom = parse(testEmail.html);
 
     const actualEmailContent = {
@@ -134,7 +136,7 @@ expect.extend({
 
       return {
         pass: false,
-        message: () => `Email content ${isNot ? "is" : "is not"} matching`,
+        message: () => `Email content ${isNot ? "is" : "is not"} matching. ${JSON.stringify(emailsToLog)}`,
         actual: actualEmailContent,
         expected: expectedEmailContent,
       };
@@ -161,9 +163,14 @@ expect.extend({
     }
 
     if (!expectedEmail.noIcs && !isIcsUIDExpected) {
+      const icsObjectKeys = icsObject ? Object.keys(icsObject) : [];
+      const icsKey = icsObjectKeys.find((key) => key !== "vcalendar");
+      if (!icsKey) throw new Error("icsKey not found");
       return {
         pass: false,
-        actual: JSON.stringify(icsObject),
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        //@ts-ignore
+        actual: icsObject[icsKey].uid!,
         expected: expectedEmail.ics?.iCalUID,
         message: () => `Expected ICS UID ${isNot ? "is" : "isn't"} present in actual`,
       };
@@ -172,7 +179,7 @@ expect.extend({
     if (expectedEmail.noIcs && ics) {
       return {
         pass: false,
-        message: () => `${isNot ? "" : "Not"} expected ics file`,
+        message: () => `${isNot ? "" : "Not"} expected ics file ${JSON.stringify(ics)}`,
       };
     }
 
@@ -286,6 +293,7 @@ export function expectWebhookToHaveBeenCalledWith(
       ? parsedBody.payload.metadata.videoCallUrl
       : parsedBody.payload.metadata.videoCallUrl;
   }
+
   if (data.payload) {
     if (data.payload.metadata !== undefined) {
       expect(parsedBody.payload.metadata).toEqual(expect.objectContaining(data.payload.metadata));
@@ -297,8 +305,43 @@ export function expectWebhookToHaveBeenCalledWith(
   }
 }
 
-export function expectWorkflowToBeTriggered() {
-  // TODO: Implement this.
+export function expectWorkflowToBeTriggered({
+  emails,
+  organizer,
+  destinationEmail,
+}: {
+  emails: Fixtures["emails"];
+  organizer: { email: string; name: string; timeZone: string };
+  destinationEmail?: string;
+}) {
+  const subjectPattern = /^Reminder: /i;
+  expect(emails.get()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        subject: expect.stringMatching(subjectPattern),
+        to: destinationEmail ?? organizer.email,
+      }),
+    ])
+  );
+}
+
+export function expectWorkflowToBeNotTriggered({
+  emails,
+  organizer,
+}: {
+  emails: Fixtures["emails"];
+  organizer: { email: string; name: string; timeZone: string };
+}) {
+  const subjectPattern = /^Reminder: /i;
+
+  expect(emails.get()).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        subject: expect.stringMatching(subjectPattern),
+        to: organizer.email,
+      }),
+    ])
+  );
 }
 
 export async function expectBookingToBeInDatabase(
@@ -330,6 +373,7 @@ export function expectSuccessfulBookingCreationEmails({
   recurrence,
   bookingTimeRange,
   booking,
+  destinationEmail,
 }: {
   emails: Fixtures["emails"];
   organizer: { email: string; name: string; timeZone: string };
@@ -341,8 +385,9 @@ export function expectSuccessfulBookingCreationEmails({
   eventDomain?: string;
   bookingTimeRange?: { start: Date; end: Date };
   booking: { uid: string; urlOrigin?: string };
+  destinationEmail?: string;
 }) {
-  const bookingUrlOrigin = booking.urlOrigin || WEBAPP_URL;
+  const bookingUrlOrigin = booking.urlOrigin || WEBSITE_URL;
   expect(emails).toHaveEmail(
     {
       titleTag: "confirmed_event_type_subject",
@@ -369,14 +414,15 @@ export function expectSuccessfulBookingCreationEmails({
             },
           }
         : null),
-      to: `${organizer.email}`,
+      to: `${destinationEmail ?? organizer.email}`,
       ics: {
         filename: "event.ics",
         iCalUID: `${iCalUID}`,
         recurrence,
+        method: "REQUEST",
       },
     },
-    `${organizer.email}`
+    `${destinationEmail ?? organizer.email}`
   );
 
   expect(emails).toHaveEmail(
@@ -396,8 +442,9 @@ export function expectSuccessfulBookingCreationEmails({
       to: `${booker.name} <${booker.email}>`,
       ics: {
         filename: "event.ics",
-        iCalUID: iCalUID,
+        iCalUID: `${iCalUID}`,
         recurrence,
+        method: "REQUEST",
       },
       links: recurrence
         ? [
@@ -435,7 +482,8 @@ export function expectSuccessfulBookingCreationEmails({
           to: `${otherTeamMember.email}`,
           ics: {
             filename: "event.ics",
-            iCalUID: iCalUID,
+            iCalUID: `${iCalUID}`,
+            method: "REQUEST",
           },
           links: [
             {
@@ -471,7 +519,8 @@ export function expectSuccessfulBookingCreationEmails({
           to: `${guest.email}`,
           ics: {
             filename: "event.ics",
-            iCalUID: iCalUID,
+            iCalUID: `${iCalUID}`,
+            method: "REQUEST",
           },
         },
         `${guest.name} <${guest.email}`
@@ -528,6 +577,7 @@ export function expectCalendarEventCreationFailureEmails({
       ics: {
         filename: "event.ics",
         iCalUID,
+        method: "REQUEST",
       },
     },
     `${organizer.email}`
@@ -540,10 +590,56 @@ export function expectCalendarEventCreationFailureEmails({
       ics: {
         filename: "event.ics",
         iCalUID,
+        method: "REQUEST",
       },
     },
     `${booker.name} <${booker.email}>`
   );
+}
+
+export function expectSuccessfulRoundRobinReschedulingEmails({
+  emails,
+  newOrganizer,
+  prevOrganizer,
+}: {
+  emails: Fixtures["emails"];
+  newOrganizer: { email: string; name: string };
+  prevOrganizer: { email: string; name: string };
+}) {
+  if (newOrganizer !== prevOrganizer) {
+    vi.waitFor(() => {
+      // new organizer should recieve scheduling emails
+      expect(emails).toHaveEmail(
+        {
+          heading: "new_event_scheduled",
+          to: `${newOrganizer.email}`,
+        },
+        `${newOrganizer.email}`
+      );
+    });
+
+    vi.waitFor(() => {
+      // old organizer should recieve cancelled emails
+      expect(emails).toHaveEmail(
+        {
+          heading: "event_request_cancelled",
+          to: `${prevOrganizer.email}`,
+        },
+        `${prevOrganizer.email}`
+      );
+    });
+  } else {
+    vi.waitFor(() => {
+      // organizer should recieve rescheduled emails
+      expect(emails).toHaveEmail(
+        {
+          heading: "event_has_been_rescheduled",
+          to: `${newOrganizer.email}`,
+        },
+        `${newOrganizer.email}`
+      );
+    });
+  }
 }
 
 export function expectSuccessfulBookingRescheduledEmails({
@@ -566,6 +662,7 @@ export function expectSuccessfulBookingRescheduledEmails({
       ics: {
         filename: "event.ics",
         iCalUID,
+        method: "REQUEST",
       },
       appsStatus,
     },
@@ -579,11 +676,13 @@ export function expectSuccessfulBookingRescheduledEmails({
       ics: {
         filename: "event.ics",
         iCalUID,
+        method: "REQUEST",
       },
     },
     `${booker.name} <${booker.email}>`
   );
 }
+
 export function expectAwaitingPaymentEmails({
   emails,
   booker,
@@ -630,6 +729,61 @@ export function expectBookingRequestedEmails({
   );
 }
 
+export function expectBookingRequestRescheduledEmails({
+  emails,
+  loggedInUser,
+  booker,
+  booking,
+  bookNewTimePath,
+  organizer,
+}: {
+  emails: Fixtures["emails"];
+  organizer: ReturnType<typeof getOrganizer>;
+  loggedInUser: {
+    email: string;
+    name: string;
+  };
+  booker: { email: string; name: string };
+  booking: { uid: string; urlOrigin?: string };
+  bookNewTimePath: string;
+}) {
+  const bookingUrlOrigin = booking.urlOrigin || WEBSITE_URL;
+
+  expect(emails).toHaveEmail(
+    {
+      titleTag: "rescheduled_event_type_subject",
+      heading: "request_reschedule_booking",
+      subHeading: "request_reschedule_subtitle",
+      links: [
+        {
+          href: `${bookingUrlOrigin}${bookNewTimePath}?rescheduleUid=${booking.uid}`,
+          text: "Book a new time",
+        },
+      ],
+      to: `${booker.email}`,
+      ics: {
+        filename: "event.ics",
+        method: "REQUEST",
+      },
+    },
+    `${booker.email}`
+  );
+
+  expect(emails).toHaveEmail(
+    {
+      titleTag: "rescheduled_event_type_subject",
+      heading: "request_reschedule_title_organizer",
+      subHeading: "request_reschedule_subtitle_organizer",
+      to: `${loggedInUser.email}`,
+      ics: {
+        filename: "event.ics",
+        method: "REQUEST",
+      },
+    },
+    `${loggedInUser.email}`
+  );
+}
+
 export function expectBookingRequestedWebhookToHaveBeenFired({
   booker,
   location,
@@ -655,11 +809,20 @@ export function expectBookingRequestedWebhookToHaveBeenFired({
           // In a Pending Booking Request, we don't send the video call url
         },
         responses: {
-          name: { label: "your_name", value: booker.name },
-          email: { label: "email_address", value: booker.email },
+          name: {
+            label: "your_name",
+            value: booker.name,
+            isHidden: false,
+          },
+          email: {
+            label: "email_address",
+            value: booker.email,
+            isHidden: false,
+          },
           location: {
             label: "location",
             value: { optionValue: "", value: location },
+            isHidden: false,
           },
         },
       },
@@ -708,11 +871,12 @@ export function expectBookingCreatedWebhookToHaveBeenFired({
           ...(videoCallUrl ? { videoCallUrl } : null),
         },
         responses: {
-          name: { label: "your_name", value: booker.name },
-          email: { label: "email_address", value: booker.email },
+          name: { label: "your_name", value: booker.name, isHidden: false },
+          email: { label: "email_address", value: booker.email, isHidden: false },
           location: {
             label: "location",
             value: { optionValue: "", value: location },
+            isHidden: false,
           },
         },
       },
@@ -724,8 +888,14 @@ export function expectBookingCreatedWebhookToHaveBeenFired({
         // FIXME: File this bug and link ticket here. This is a bug in the code. metadata must be sent here like other BOOKING_CREATED webhook
         metadata: null,
         responses: {
-          name: { label: "name", value: booker.name },
-          email: { label: "email", value: booker.email },
+          name: {
+            label: "name",
+            value: booker.name,
+          },
+          email: {
+            label: "email",
+            value: booker.email,
+          },
           location: {
             label: "location",
             value: { optionValue: "", value: location },
@@ -759,11 +929,12 @@ export function expectBookingRescheduledWebhookToHaveBeenFired({
         ...(videoCallUrl ? { videoCallUrl } : null),
       },
       responses: {
-        name: { label: "your_name", value: booker.name },
-        email: { label: "email_address", value: booker.email },
+        name: { label: "your_name", value: booker.name, isHidden: false },
+        email: { label: "email_address", value: booker.email, isHidden: false },
         location: {
           label: "location",
           value: { optionValue: "", value: location },
+          isHidden: false,
         },
       },
     },
@@ -790,11 +961,12 @@ export function expectBookingPaymentIntiatedWebhookToHaveBeenFired({
         // In a Pending Booking Request, we don't send the video call url
       },
       responses: {
-        name: { label: "your_name", value: booker.name },
-        email: { label: "email_address", value: booker.email },
+        name: { label: "your_name", value: booker.name, isHidden: false },
+        email: { label: "email_address", value: booker.email, isHidden: false },
         location: {
           label: "location",
           value: { optionValue: "", value: location },
+          isHidden: false,
         },
       },
     },
@@ -973,4 +1145,12 @@ export async function expectBookingInDBToBeRescheduledFromTo({ from, to }: { fro
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     ...to,
   });
+}
+
+export function expectICalUIDAsString(iCalUID: string | undefined | null) {
+  if (typeof iCalUID !== "string") {
+    throw new Error("iCalUID is not a string");
+  }
+
+  return iCalUID;
 }

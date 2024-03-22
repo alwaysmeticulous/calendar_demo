@@ -4,12 +4,15 @@
 ARG NODE_VERSION=20.7.0
 FROM node:${NODE_VERSION}-slim as base
 
+ARG DATABASE_URL
+
 # Next.js/Prisma app lives here
 WORKDIR /app
 
 # Set production environment
-ENV NODE_ENV="production"
-
+ENV NODE_ENV="production" \
+    DATABASE_URL=$DATABASE_URL \
+    DATABASE_DIRECT_URL=$DATABASE_URL
 
 # Throw-away build stage to reduce size of final image
 FROM base as build
@@ -21,6 +24,7 @@ COPY ./apps/api ./apps/api
 COPY ./packages ./packages
 # TODO: follow up pr to remove dependencies on web
 COPY ./apps/web ./apps/web
+COPY ./tests ./tests
 
 # Install node modules and dependencies, prune unneeded deps, then build
 RUN set -eux; \
@@ -55,7 +59,13 @@ COPY --from=build /app/apps/api/.next ./apps/api/.next
 COPY --from=build /app/apps/api/.turbo ./apps/api/.turbo
 COPY --from=build /app/turbo.json ./turbo.json
 COPY --from=build /app/yarn.lock ./yarn.lock
-
+COPY --from=build /app/packages/config ./packages/config
+COPY --from=build /app/packages/tsconfig ./packages/tsconfig
+COPY --from=build /app/packages/types ./packages/types
+COPY --from=build /app/apps/web/next.config.js ./apps/web/next.config.js
+COPY --from=build /app/apps/web/next-i18next.config.js ./apps/web/next-i18next.config.js
+COPY --from=build /app/apps/web/public/static/locales ./apps/web/public/static/locales
+COPY --from=build /app/apps/web/package.json ./apps/web/package.json
 # Expose port 80
 EXPOSE 80
 

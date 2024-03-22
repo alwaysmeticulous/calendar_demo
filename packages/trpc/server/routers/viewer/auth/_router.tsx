@@ -4,6 +4,7 @@ import authedProcedure from "../../../procedures/authedProcedure";
 import publicProcedure from "../../../procedures/publicProcedure";
 import { router } from "../../../trpc";
 import { ZChangePasswordInputSchema } from "./changePassword.schema";
+import { ZResendVerifyEmailSchema } from "./resendVerifyEmail.schema";
 import { ZSendVerifyEmailCodeSchema } from "./sendVerifyEmailCode.schema";
 import { ZVerifyPasswordInputSchema } from "./verifyPassword.schema";
 
@@ -13,6 +14,7 @@ type AuthRouterHandlerCache = {
   verifyCodeUnAuthenticated?: typeof import("./verifyCodeUnAuthenticated.handler").verifyCodeUnAuthenticatedHandler;
   resendVerifyEmail?: typeof import("./resendVerifyEmail.handler").resendVerifyEmail;
   sendVerifyEmailCode?: typeof import("./sendVerifyEmailCode.handler").sendVerifyEmailCodeHandler;
+  resendVerifySecondaryEmail?: typeof import("./resendVerifyEmail.handler").resendVerifyEmail;
 };
 
 const UNSTABLE_HANDLER_CACHE: AuthRouterHandlerCache = {};
@@ -71,7 +73,7 @@ export const authRouter = router({
     });
   }),
 
-  sendVerifyEmailCode: publicProcedure.input(ZSendVerifyEmailCodeSchema).mutation(async ({ input }) => {
+  sendVerifyEmailCode: publicProcedure.input(ZSendVerifyEmailCodeSchema).mutation(async ({ input, ctx }) => {
     if (!UNSTABLE_HANDLER_CACHE.sendVerifyEmailCode) {
       UNSTABLE_HANDLER_CACHE.sendVerifyEmailCode = await import("./sendVerifyEmailCode.handler").then(
         (mod) => mod.sendVerifyEmailCodeHandler
@@ -85,10 +87,11 @@ export const authRouter = router({
 
     return UNSTABLE_HANDLER_CACHE.sendVerifyEmailCode({
       input,
+      req: ctx.req,
     });
   }),
 
-  resendVerifyEmail: authedProcedure.mutation(async ({ ctx }) => {
+  resendVerifyEmail: authedProcedure.input(ZResendVerifyEmailSchema).mutation(async ({ input, ctx }) => {
     if (!UNSTABLE_HANDLER_CACHE.resendVerifyEmail) {
       UNSTABLE_HANDLER_CACHE.resendVerifyEmail = await import("./resendVerifyEmail.handler").then(
         (mod) => mod.resendVerifyEmail
@@ -100,6 +103,7 @@ export const authRouter = router({
     }
 
     return UNSTABLE_HANDLER_CACHE.resendVerifyEmail({
+      input,
       ctx,
     });
   }),

@@ -12,6 +12,7 @@ export type HorizontalTabItemProps = {
   name: string;
   disabled?: boolean;
   className?: string;
+  target?: string;
   href: string;
   linkShallow?: boolean;
   linkScroll?: boolean;
@@ -39,10 +40,11 @@ const HorizontalTabItem = function ({
       scroll={linkScroll}
       className={classNames(
         isCurrent ? "bg-emphasis text-emphasis" : "hover:bg-subtle hover:text-emphasis text-default",
-        "inline-flex items-center justify-center whitespace-nowrap rounded-[6px] p-2 text-sm font-medium leading-4 md:mb-0",
+        "inline-flex items-center justify-center whitespace-nowrap rounded-[6px] p-2 text-sm font-medium leading-4 transition md:mb-0",
         props.disabled && "pointer-events-none !opacity-30",
         props.className
       )}
+      target={props.target ? props.target : undefined}
       data-testid={`horizontal-tab-${name}`}
       aria-current={isCurrent ? "page" : undefined}>
       {props.icon && (

@@ -2,13 +2,14 @@ import type { Payment } from "@prisma/client";
 import type { EventType } from "@prisma/client";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeElementLocale } from "@stripe/stripe-js";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type { SyntheticEvent } from "react";
 import { useEffect, useState } from "react";
 
 import getStripe from "@calcom/app-store/stripepayment/lib/client";
 import { getBookingRedirectExtraParams, useBookingSuccessRedirect } from "@calcom/lib/bookingSuccessRedirect";
-import { CAL_URL } from "@calcom/lib/constants";
+import { WEBAPP_URL } from "@calcom/lib/constants";
+import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { Button, CheckboxField } from "@calcom/ui";
 
@@ -47,7 +48,7 @@ type States =
 
 const getReturnUrl = (props: Props) => {
   if (!props.eventType.successRedirectUrl) {
-    return `${CAL_URL}/booking/${props.booking.uid}`;
+    return `${WEBAPP_URL}/booking/${props.booking.uid}`;
   }
 
   const returnUrl = new URL(props.eventType.successRedirectUrl);
@@ -69,7 +70,7 @@ const PaymentForm = (props: Props) => {
   } = props;
   const { t, i18n } = useLocale();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useCompatSearchParams();
   const [state, setState] = useState<States>({ status: "idle" });
   const [isCanceling, setIsCanceling] = useState<boolean>(false);
   const stripe = useStripe();

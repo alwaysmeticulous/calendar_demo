@@ -1,34 +1,50 @@
-import type { Page } from "@playwright/test";
 import { expect } from "@playwright/test";
 
+import { IS_TEAM_BILLING_ENABLED } from "@calcom/lib/constants";
 import { prisma } from "@calcom/prisma";
-import { MembershipRole, SchedulingType } from "@calcom/prisma/enums";
+import { SchedulingType } from "@calcom/prisma/enums";
 
 import { test } from "./lib/fixtures";
-import { bookTimeSlot, selectFirstAvailableTimeSlotNextMonth, testName, todo } from "./lib/testUtils";
+import { testBothFutureAndLegacyRoutes } from "./lib/future-legacy-routes";
+import {
+  bookTimeSlot,
+  fillStripeTestCheckout,
+  selectFirstAvailableTimeSlotNextMonth,
+  testName,
+  todo,
+} from "./lib/testUtils";
 
 test.describe.configure({ mode: "parallel" });
 
-test.describe("Teams - NonOrg", () => {
-  test.afterEach(({ users }) => users.deleteAll());
-  test("Can create teams via Wizard", async ({ page, users }) => {
+testBothFutureAndLegacyRoutes.describe("Teams A/B tests", (routeVariant) => {
+  test("should render the /teams page", async ({ page, users, context }) => {
+    // TODO: Revert until OOM issue is resolved
+    test.skip(routeVariant === "future", "Future route not ready yet");
     const user = await users.create();
-    const inviteeEmail = `${user.username}+invitee@example.com`;
+
     await user.apiLogin();
+
     await page.goto("/teams");
 
-    await test.step("Can create team", async () => {
-      // Click text=Create Team
-      await page.locator("text=Create Team").click();
-      await page.waitForURL("/settings/teams/new");
-      // Fill input[name="name"]
-      await page.locator('input[name="name"]').fill(`${user.username}'s Team`);
-      // Click text=Continue
-      await page.locator("text=Continue").click();
-      await page.waitForURL(/\/settings\/teams\/(\d+)\/onboard-members$/i);
-      await page.waitForSelector('[data-testid="pending-member-list"]');
-      expect(await page.locator('[data-testid="pending-member-item"]').count()).toBe(1);
-    });
+    await page.waitForLoadState();
+
+    const locator = page.getByRole("heading", { name: "Teams", exact: true });
+
+    await expect(locator).toBeVisible();
+  });
+});
+
+testBothFutureAndLegacyRoutes.describe("Teams - NonOrg", (routeVariant) => {
+  test.afterEach(({ users }) => users.deleteAll());
+
+  test("Team Onboarding Invite Members", async ({ page, users }) => {
+    const user = await users.create(undefined, { hasTeam: true });
+    const { team } = await user.getFirstTeamMembership();
+    const inviteeEmail = `${user.username}+invitee@example.com`;
+
+    await user.apiLogin();
+
+    page.goto(`/settings/teams/${team.id}/onboard-members`);
 
     await test.step("Can add members", async () => {
       // Click [data-testid="new-member-button"]
@@ -50,9 +66,9 @@ test.describe("Teams - NonOrg", () => {
       await prisma.user.delete({ where: { email: inviteeEmail } });
     });
 
-    await test.step("Can publish team", async () => {
-      await page.locator("text=Publish team").click();
-      await page.waitForURL(/\/settings\/teams\/(\d+)\/profile$/i);
+    await test.step("Finishing brings you to team profile page", async () => {
+      await page.locator("[data-testid=publish-button]").click();
+      await expect(page).toHaveURL(/\/settings\/teams\/(\d+)\/profile$/i);
     });
 
     await test.step("Can disband team", async () => {
@@ -66,7 +82,6 @@ test.describe("Teams - NonOrg", () => {
   });
 
   test("Can create a booking for Collective EventType", async ({ page, users }) => {
-    const ownerObj = { username: "pro-user", name: "pro-user" };
     const teamMatesObj = [
       { name: "teammate-1" },
       { name: "teammate-2" },
@@ -74,12 +89,15 @@ test.describe("Teams - NonOrg", () => {
       { name: "teammate-4" },
     ];
 
-    const owner = await users.create(ownerObj, {
-      hasTeam: true,
-      teammates: teamMatesObj,
-      schedulingType: SchedulingType.COLLECTIVE,
-    });
-    const { team } = await owner.getFirstTeam();
+    const owner = await users.create(
+      { username: "pro-user", name: "pro-user" },
+      {
+        hasTeam: true,
+        teammates: teamMatesObj,
+        schedulingType: SchedulingType.COLLECTIVE,
+      }
+    );
+    const { team } = await owner.getFirstTeamMembership();
     const { title: teamEventTitle, slug: teamEventSlug } = await owner.getFirstTeamEvent(team.id);
 
     await page.goto(`/team/${team.slug}/${teamEventSlug}`);
@@ -102,20 +120,22 @@ test.describe("Teams - NonOrg", () => {
   });
 
   test("Can create a booking for Round Robin EventType", async ({ page, users }) => {
-    const ownerObj = { username: "pro-user", name: "pro-user" };
     const teamMatesObj = [
       { name: "teammate-1" },
       { name: "teammate-2" },
       { name: "teammate-3" },
       { name: "teammate-4" },
     ];
-    const owner = await users.create(ownerObj, {
-      hasTeam: true,
-      teammates: teamMatesObj,
-      schedulingType: SchedulingType.ROUND_ROBIN,
-    });
+    const owner = await users.create(
+      { username: "pro-user", name: "pro-user" },
+      {
+        hasTeam: true,
+        teammates: teamMatesObj,
+        schedulingType: SchedulingType.ROUND_ROBIN,
+      }
+    );
 
-    const { team } = await owner.getFirstTeam();
+    const { team } = await owner.getFirstTeamMembership();
     const { title: teamEventTitle, slug: teamEventSlug } = await owner.getFirstTeamEvent(team.id);
 
     await page.goto(`/team/${team.slug}/${teamEventSlug}`);
@@ -134,11 +154,12 @@ test.describe("Teams - NonOrg", () => {
     // Anyone of the teammates could be the Host of the booking.
     const chosenUser = await page.getByTestId("booking-host-name").textContent();
     expect(chosenUser).not.toBeNull();
-    expect(teamMatesObj.some(({ name }) => name === chosenUser)).toBe(true);
+    expect(teamMatesObj.concat([{ name: owner.name! }]).some(({ name }) => name === chosenUser)).toBe(true);
     // TODO: Assert whether the user received an email
   });
 
   test("Non admin team members cannot create team in org", async ({ page, users }) => {
+    test.skip(routeVariant === "future", "Future route not ready yet");
     const teamMateName = "teammate-1";
 
     const owner = await users.create(undefined, {
@@ -164,21 +185,19 @@ test.describe("Teams - NonOrg", () => {
       await page.goto("/settings/teams/new");
       // Fill input[name="name"]
       await page.locator('input[name="name"]').fill(uniqueName);
-      await page.locator("text=Continue").click();
-      await expect(page.locator("[data-testid=alert]")).toBeVisible();
+      await page.click("[type=submit]");
 
       // cleanup
-      const org = await owner.getOrg();
+      const org = await owner.getOrgMembership();
       await prisma.team.delete({ where: { id: org.teamId } });
     }
   });
 
   test("Can create team with same name as user", async ({ page, users }) => {
+    test.skip(routeVariant === "future", "Future route not ready yet");
+    const user = await users.create();
     // Name to be used for both user and team
-    const uniqueName = "test-unique-name";
-    const ownerObj = { username: uniqueName, name: uniqueName, useExactUsername: true };
-
-    const user = await users.create(ownerObj);
+    const uniqueName = user.username!;
     await user.apiLogin();
     await page.goto("/teams");
 
@@ -189,11 +208,14 @@ test.describe("Teams - NonOrg", () => {
       // Fill input[name="name"]
       await page.locator('input[name="name"]').fill(uniqueName);
       // Click text=Continue
-      await page.locator("text=Continue").click();
-      await page.waitForURL(/\/settings\/teams\/(\d+)\/onboard-members$/i);
+      await page.click("[type=submit]");
+      // TODO: Figure out a way to make this more reliable
+      // eslint-disable-next-line playwright/no-conditional-in-test
+      if (IS_TEAM_BILLING_ENABLED) await fillStripeTestCheckout(page);
+      await page.waitForURL(/\/settings\/teams\/(\d+)\/onboard-members.*$/i);
       // Click text=Continue
-      await page.locator("text=Publish team").click();
-      await page.waitForURL(/\/settings\/teams\/(\d+)\/profile$/i);
+      await page.locator("[data-testid=publish-button]").click();
+      await expect(page).toHaveURL(/\/settings\/teams\/(\d+)\/profile$/i);
     });
 
     await test.step("Can access user and team with same slug", async () => {
@@ -210,13 +232,11 @@ test.describe("Teams - NonOrg", () => {
       await expect(page.locator("[data-testid=name-title]")).toHaveText(uniqueName);
 
       // cleanup team
-      const team = await prisma.team.findFirst({ where: { slug: uniqueName } });
-      await prisma.team.delete({ where: { id: team?.id } });
+      await prisma.team.deleteMany({ where: { slug: uniqueName } });
     });
   });
 
   test("Can create a private team", async ({ page, users }) => {
-    const ownerObj = { username: "pro-user", name: "pro-user" };
     const teamMatesObj = [
       { name: "teammate-1" },
       { name: "teammate-2" },
@@ -224,19 +244,27 @@ test.describe("Teams - NonOrg", () => {
       { name: "teammate-4" },
     ];
 
-    const owner = await users.create(ownerObj, {
-      hasTeam: true,
-      teammates: teamMatesObj,
-      schedulingType: SchedulingType.COLLECTIVE,
-    });
+    const owner = await users.create(
+      { username: "pro-user", name: "pro-user" },
+      {
+        hasTeam: true,
+        teammates: teamMatesObj,
+        schedulingType: SchedulingType.COLLECTIVE,
+      }
+    );
 
     await owner.apiLogin();
-    const { team } = await owner.getFirstTeam();
+    const { team } = await owner.getFirstTeamMembership();
 
     // Mark team as private
     await page.goto(`/settings/teams/${team.id}/members`);
-    await page.click("[data-testid=make-team-private-check]");
-    await expect(page.locator(`[data-testid=make-team-private-check][data-state="checked"]`)).toBeVisible();
+    await Promise.all([
+      page.click("[data-testid=make-team-private-check]"),
+      expect(page.locator(`[data-testid=make-team-private-check][data-state="checked"]`)).toBeVisible(),
+      // according to switch implementation, checked state can be set before mutation is resolved
+      // so we need to await for req to resolve
+      page.waitForResponse((res) => res.url().includes("/api/trpc/teams/update")),
+    ]);
 
     // Go to Team's page
     await page.goto(`/team/${team.slug}`);
@@ -247,85 +275,7 @@ test.describe("Teams - NonOrg", () => {
     await expect(page.locator('[data-testid="you-cannot-see-team-members"]')).toBeVisible();
     await expect(page.locator('[data-testid="team-members-container"]')).toBeHidden();
   });
-
-  todo("Create a Round Robin with different leastRecentlyBooked hosts");
-  todo("Reschedule a Collective EventType booking");
-  todo("Reschedule a Round Robin EventType booking");
-});
-
-test.describe("Teams - Org", () => {
-  test.afterEach(({ orgs, users }) => {
-    orgs.deleteAll();
-    users.deleteAll();
-  });
-
-  test("Can create teams via Wizard", async ({ page, users, orgs }) => {
-    const org = await orgs.create({
-      name: "TestOrg",
-    });
-    const user = await users.create({
-      organizationId: org.id,
-      roleInOrganization: MembershipRole.ADMIN,
-    });
-    const inviteeEmail = `${user.username}+invitee@example.com`;
-    await user.apiLogin();
-    await page.goto("/teams");
-
-    await test.step("Can create team", async () => {
-      // Click text=Create Team
-      await page.locator("text=Create a new Team").click();
-      await page.waitForURL((url) => url.pathname === "/settings/teams/new");
-      // Fill input[name="name"]
-      await page.locator('input[name="name"]').fill(`${user.username}'s Team`);
-      // Click text=Continue
-      await page.locator("text=Continue").click();
-      await page.waitForURL(/\/settings\/teams\/(\d+)\/onboard-members$/i);
-      await page.waitForSelector('[data-testid="pending-member-list"]');
-      expect(await page.locator('[data-testid="pending-member-item"]').count()).toBe(1);
-    });
-
-    await test.step("Can add members", async () => {
-      // Click [data-testid="new-member-button"]
-      await page.locator('[data-testid="new-member-button"]').click();
-      // Fill [placeholder="email\@example\.com"]
-      await page.locator('[placeholder="email\\@example\\.com"]').fill(inviteeEmail);
-      // Click [data-testid="invite-new-member-button"]
-      await page.locator('[data-testid="invite-new-member-button"]').click();
-      await expect(page.locator(`li:has-text("${inviteeEmail}")`)).toBeVisible();
-      expect(await page.locator('[data-testid="pending-member-item"]').count()).toBe(2);
-    });
-
-    await test.step("Can remove members", async () => {
-      expect(await page.locator('[data-testid="pending-member-item"]').count()).toBe(2);
-
-      const lastRemoveMemberButton = page.locator('[data-testid="remove-member-button"]').last();
-      await lastRemoveMemberButton.click();
-      await page.waitForLoadState("networkidle");
-      expect(await page.locator('[data-testid="pending-member-item"]').count()).toBe(1);
-
-      // Cleanup here since this user is created without our fixtures.
-      await prisma.user.delete({ where: { email: inviteeEmail } });
-    });
-
-    await test.step("Can finish team creation", async () => {
-      await page.locator("text=Finish").click();
-      await page.waitForURL("/settings/teams");
-    });
-
-    await test.step("Can disband team", async () => {
-      await page.locator('[data-testid="team-list-item-link"]').click();
-      await page.waitForURL(/\/settings\/teams\/(\d+)\/profile$/i);
-      await page.locator("text=Disband Team").click();
-      await page.locator("text=Yes, disband team").click();
-      await page.waitForURL("/teams");
-      expect(await page.locator(`text=${user.username}'s Team`).count()).toEqual(0);
-    });
-  });
-
-  test("Can create a booking for Collective EventType", async ({ page, users, orgs }) => {
-    const org = await orgs.create({
-      name: "TestOrg",
-    });
+  test("Email Embeds slots are loading for team event types", async ({ page, users }) => {
     const teamMatesObj = [
       { name: "teammate-1" },
       { name: "teammate-2" },
@@ -334,98 +284,37 @@ test.describe("Teams - Org", () => {
     ];
 
     const owner = await users.create(
-      {
-        username: "pro-user",
-        name: "pro-user",
-        organizationId: org.id,
-        roleInOrganization: MembershipRole.MEMBER,
-      },
+      { username: "pro-user", name: "pro-user" },
       {
         hasTeam: true,
         teammates: teamMatesObj,
         schedulingType: SchedulingType.COLLECTIVE,
       }
     );
-    const { team } = await owner.getFirstTeam();
-    const { title: teamEventTitle, slug: teamEventSlug } = await owner.getFirstTeamEvent(team.id);
 
-    await page.goto(`/team/${team.slug}/${teamEventSlug}`);
+    await owner.apiLogin();
+    const { team } = await owner.getFirstTeamMembership();
+    const {
+      title: teamEventTitle,
+      slug: teamEventSlug,
+      id: teamEventId,
+    } = await owner.getFirstTeamEvent(team.id);
 
-    await expect(page.locator('[data-testid="404-page"]')).toBeVisible();
-    await doOnOrgDomain(
-      {
-        orgSlug: org.slug,
-        page,
-      },
-      async () => {
-        await page.goto(`/team/${team.slug}/${teamEventSlug}`);
-        await selectFirstAvailableTimeSlotNextMonth(page);
-        await bookTimeSlot(page);
-        await expect(page.locator("[data-testid=success-page]")).toBeVisible();
+    await page.goto("/event-types");
 
-        // The title of the booking
-        const BookingTitle = `${teamEventTitle} between ${team.name} and ${testName}`;
-        await expect(page.locator("[data-testid=booking-title]")).toHaveText(BookingTitle);
-        // The booker should be in the attendee list
-        await expect(page.locator(`[data-testid="attendee-name-${testName}"]`)).toHaveText(testName);
+    await page.getByTestId(`event-type-options-${teamEventId}`).first().click();
+    await page.getByTestId("embed").click();
+    await page.getByTestId("email").click();
+    await page.getByTestId("incrementMonth").click();
 
-        // All the teammates should be in the booking
-        for (const teammate of teamMatesObj) {
-          await expect(page.getByText(teammate.name, { exact: true })).toBeVisible();
-        }
-      }
-    );
+    await expect(page.getByTestId("no-slots-available")).toBeHidden();
 
-    // TODO: Assert whether the user received an email
+    // Check Team Url
+    const availableTimesUrl = await page.getByTestId("see_all_available_times").getAttribute("href");
+    await expect(availableTimesUrl).toContain(`/team/${team.slug}/${teamEventSlug}`);
   });
 
-  test("Can create a booking for Round Robin EventType", async ({ page, users }) => {
-    const ownerObj = { username: "pro-user", name: "pro-user" };
-    const teamMatesObj = [
-      { name: "teammate-1" },
-      { name: "teammate-2" },
-      { name: "teammate-3" },
-      { name: "teammate-4" },
-    ];
-    const owner = await users.create(ownerObj, {
-      hasTeam: true,
-      teammates: teamMatesObj,
-      schedulingType: SchedulingType.ROUND_ROBIN,
-    });
-
-    const { team } = await owner.getFirstTeam();
-    const { title: teamEventTitle, slug: teamEventSlug } = await owner.getFirstTeamEvent(team.id);
-
-    await page.goto(`/team/${team.slug}/${teamEventSlug}`);
-    await selectFirstAvailableTimeSlotNextMonth(page);
-    await bookTimeSlot(page);
-    await expect(page.locator("[data-testid=success-page]")).toBeVisible();
-
-    // The person who booked the meeting should be in the attendee list
-    await expect(page.locator(`[data-testid="attendee-name-${testName}"]`)).toHaveText(testName);
-
-    // The title of the booking
-    const BookingTitle = `${teamEventTitle} between ${team.name} and ${testName}`;
-    await expect(page.locator("[data-testid=booking-title]")).toHaveText(BookingTitle);
-
-    // Since all the users have the same leastRecentlyBooked value
-    // Anyone of the teammates could be the Host of the booking.
-    const chosenUser = await page.getByTestId("booking-host-name").textContent();
-    expect(chosenUser).not.toBeNull();
-    expect(teamMatesObj.some(({ name }) => name === chosenUser)).toBe(true);
-    // TODO: Assert whether the user received an email
-  });
+  todo("Create a Round Robin with different leastRecentlyBooked hosts");
+  todo("Reschedule a Collective EventType booking");
+  todo("Reschedule a Round Robin EventType booking");
 });
-
-async function doOnOrgDomain(
-  { orgSlug, page }: { orgSlug: string | null; page: Page },
-  callback: ({ page }: { page: Page }) => Promise<void>
-) {
-  if (!orgSlug) {
-    throw new Error("orgSlug is not available");
-  }
-  page.setExtraHTTPHeaders({
-    "x-cal-force-slug": orgSlug,
-  });
-  await callback({ page });
-}

@@ -1,15 +1,22 @@
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback } from "react";
 
+import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
+
 export default function useRouterQuery<T extends string>(name: T) {
-  const searchParams = useSearchParams();
+  const searchParams = useCompatSearchParams();
   const pathname = usePathname();
   const router = useRouter();
 
   const setQuery = useCallback(
     (newValue: string | number | null | undefined) => {
       const _searchParams = new URLSearchParams(searchParams ?? undefined);
-      _searchParams.set(name, newValue as string);
+      if (typeof newValue === "undefined") {
+        // when newValue is of type undefined, clear the search param.
+        _searchParams.delete(name);
+      } else {
+        _searchParams.set(name, newValue as string);
+      }
       router.replace(`${pathname}?${_searchParams.toString()}`);
     },
     [name, pathname, router, searchParams]

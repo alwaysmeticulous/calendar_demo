@@ -4,8 +4,6 @@ import { getTranslation } from "@calcom/lib/server/i18n";
 import { prisma } from "@calcom/prisma";
 import type { TrpcSessionUser } from "@calcom/trpc/server/trpc";
 
-import { TRPCError } from "@trpc/server";
-
 import { checkPermissions, getTeamOrThrow } from "./inviteMember/utils";
 import type { TResendInvitationInputSchema } from "./resendInvitation.schema";
 
@@ -17,7 +15,7 @@ type InviteMemberOptions = {
 };
 
 export const resendInvitationHandler = async ({ ctx, input }: InviteMemberOptions) => {
-  const team = await getTeamOrThrow(input.teamId, input.isOrg);
+  const team = await getTeamOrThrow(input.teamId);
 
   await checkPermissions({
     userId: ctx.user.id,
@@ -36,8 +34,17 @@ export const resendInvitationHandler = async ({ ctx, input }: InviteMemberOption
     },
   });
 
-  if (!verificationToken)
-    throw new TRPCError({ code: "NOT_FOUND", message: "Couldn't resend, no existing invitation found." });
+  const inviteTeamOptions = {
+    joinLink: `${WEBAPP_URL}/auth/login?callbackUrl=/settings/teams`,
+    isCalcomMember: true,
+    isAutoJoin: false,
+  };
+
+  if (verificationToken) {
+    // Token only exists if user is CAL user but hasn't completed onboarding.
+    inviteTeamOptions.joinLink = `${WEBAPP_URL}/signup?token=${verificationToken.token}&callbackUrl=/getting-started`;
+    inviteTeamOptions.isCalcomMember = false;
+  }
 
   const translation = await getTranslation(input.language ?? "en", "common");
 
@@ -45,11 +52,13 @@ export const resendInvitationHandler = async ({ ctx, input }: InviteMemberOption
     language: translation,
     from: ctx.user.name || `${team.name}'s admin`,
     to: input.email,
-    teamName: team?.parent?.name || team.name,
-    joinLink: `${WEBAPP_URL}/signup?token=${verificationToken.token}&callbackUrl=/getting-started`,
-    isCalcomMember: false,
+    teamName: team.name,
+    ...inviteTeamOptions,
     isOrg: input.isOrg,
+    parentTeamName: team?.parent?.name,
   });
 
   return input;
 };
+
+export default resendInvitationHandler;

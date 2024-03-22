@@ -1,8 +1,10 @@
+"use client";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Prisma } from "@prisma/client";
 import { LinkIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useLayoutEffect } from "react";
+import { useState, useLayoutEffect, useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -20,6 +22,7 @@ import {
   Button,
   Form,
   ImageUploader,
+  BannerUploader,
   Label,
   Meta,
   showToast,
@@ -38,12 +41,14 @@ import { useOrgBranding } from "../../../organizations/context/provider";
 const orgProfileFormSchema = z.object({
   name: z.string(),
   logo: z.string().nullable(),
+  banner: z.string().nullable(),
   bio: z.string(),
 });
 
 type FormValues = {
   name: string;
   logo: string | null;
+  banner: string | null;
   bio: string;
   slug: string;
 };
@@ -77,13 +82,22 @@ const OrgProfileView = () => {
     document.body.focus();
   }, []);
 
-  const { data: currentOrganisation, isLoading } = trpc.viewer.organizations.listCurrent.useQuery(undefined, {
-    onError: () => {
-      router.push("/settings");
-    },
-  });
+  const {
+    data: currentOrganisation,
+    isPending,
+    error,
+  } = trpc.viewer.organizations.listCurrent.useQuery(undefined, {});
 
-  if (isLoading || !orgBranding || !currentOrganisation) {
+  useEffect(
+    function refactorMeWithoutEffect() {
+      if (error) {
+        router.push("/settings");
+      }
+    },
+    [error]
+  );
+
+  if (isPending || !orgBranding || !currentOrganisation) {
     return <SkeletonLoader title={t("profile")} description={t("profile_org_description")} />;
   }
 
@@ -99,6 +113,7 @@ const OrgProfileView = () => {
   const defaultValues: FormValues = {
     name: currentOrganisation?.name || "",
     logo: currentOrganisation?.logo || "",
+    banner: currentOrganisation?.bannerUrl || "",
     bio: currentOrganisation?.bio || "",
     slug:
       currentOrganisation?.slug ||
@@ -116,7 +131,7 @@ const OrgProfileView = () => {
           <div className="border-subtle flex rounded-b-md border border-t-0 px-4 py-8 sm:px-6">
             <div className="flex-grow">
               <div>
-                <Label className="text-emphasis">{t("org_name")}</Label>
+                <Label className="text-emphasis">{t("organization_name")}</Label>
                 <p className="text-default text-sm">{currentOrganisation?.name}</p>
               </div>
               {!isBioEmpty && (
@@ -141,25 +156,6 @@ const OrgProfileView = () => {
             </div>
           </div>
         )}
-        {/* Disable Org disbanding */}
-        {/* <hr className="border-subtle my-8 border" />
-             <div className="text-default mb-3 text-base font-semibold">{t("danger_zone")}</div>
-            {currentOrganisation?.user.role === "OWNER" ? (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button color="destructive" className="border" StartIcon={Trash2}>
-                    {t("disband_org")}
-                  </Button>
-                </DialogTrigger>
-                <ConfirmationDialogContent
-                  variety="danger"
-                  title={t("disband_org")}
-                  confirmBtnText={t("confirm")}
-                  onConfirm={deleteTeam}>
-                  {t("disband_org_confirmation_message")}
-                </ConfirmationDialogContent>
-              </Dialog>
-            ) : null} */}
         {/* LEAVE ORG should go above here ^ */}
       </>
     </LicenseRequired>
@@ -186,6 +182,7 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
         name: (res.data?.name || "") as string,
         bio: (res.data?.bio || "") as string,
         slug: defaultValues["slug"],
+        banner: (res.data?.bannerUrl || "") as string,
       });
       await utils.viewer.teams.get.invalidate();
       await utils.viewer.organizations.listCurrent.invalidate();
@@ -209,6 +206,7 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
           name: values.name,
           slug: values.slug,
           bio: values.bio,
+          banner: values.banner,
         };
 
         mutation.mutate(variables);
@@ -224,6 +222,7 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
               return (
                 <>
                   <Avatar
+                    data-testid="profile-upload-avatar"
                     alt={defaultValues.name || ""}
                     imageSrc={getPlaceholderAvatar(value, defaultValues.name as string)}
                     size="lg"
@@ -257,6 +256,53 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
           />
         </div>
 
+        <div className="mt-2 flex items-center">
+          <Controller
+            control={form.control}
+            name="banner"
+            render={({ field: { value } }) => {
+              const showRemoveBannerButton = !!value;
+
+              return (
+                <>
+                  <Avatar
+                    data-testid="profile-upload-banner"
+                    alt={`${defaultValues.name} Banner` || ""}
+                    imageSrc={value}
+                    size="lg"
+                  />
+                  <div className="ms-4">
+                    <div className="flex gap-2">
+                      <BannerUploader
+                        height={500}
+                        width={1500}
+                        target="banner"
+                        uploadInstruction={t("org_banner_instructions", { height: 500, width: 1500 })}
+                        id="banner-upload"
+                        buttonMsg={t("upload_banner")}
+                        handleAvatarChange={(newBanner) => {
+                          form.setValue("banner", newBanner, { shouldDirty: true });
+                        }}
+                        imageSrc={value || undefined}
+                        triggerButtonColor={showRemoveBannerButton ? "secondary" : "primary"}
+                      />
+                      {showRemoveBannerButton && (
+                        <Button
+                          color="destructive"
+                          onClick={() => {
+                            form.setValue("banner", "", { shouldDirty: true });
+                          }}>
+                          {t("remove")}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            }}
+          />
+        </div>
+
         <Controller
           control={form.control}
           name="name"
@@ -264,7 +310,7 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
             <div className="mt-8">
               <TextField
                 name="name"
-                label={t("org_name")}
+                label={t("organization_name")}
                 value={value}
                 onChange={(e) => {
                   form.setValue("name", e?.target.value, { shouldDirty: true });
@@ -280,7 +326,7 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
             <div className="mt-8">
               <TextField
                 name="slug"
-                label={t("org_url")}
+                label={t("organization_url")}
                 value={value}
                 disabled
                 addOnSuffix={`.${subdomainSuffix()}`}
@@ -302,7 +348,7 @@ const OrgProfileForm = ({ defaultValues }: { defaultValues: FormValues }) => {
         <p className="text-default mt-2 text-sm">{t("org_description")}</p>
       </div>
       <SectionBottomActions align="end">
-        <Button color="primary" type="submit" loading={mutation.isLoading} disabled={isDisabled}>
+        <Button color="primary" type="submit" loading={mutation.isPending} disabled={isDisabled}>
           {t("update")}
         </Button>
       </SectionBottomActions>

@@ -1,6 +1,6 @@
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
-import { useBookerUrl } from "@calcom/lib/hooks/useBookerUrl";
+import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import type { ButtonColor } from "@calcom/ui";
 import {
@@ -16,19 +16,20 @@ import {
 import { Plus } from "@calcom/ui/components/icon";
 
 export interface Option {
+  platform?: boolean;
   teamId: number | null | undefined; // if undefined, then it's a profile
   label: string | null;
-  image?: string | null;
+  image: string | null;
   slug: string | null;
 }
 
 export type CreateBtnProps = {
   options: Option[];
   createDialog?: () => JSX.Element;
-  createFunction?: (teamId?: number) => void;
+  createFunction?: (teamId?: number, platform?: boolean) => void;
   subtitle?: string;
   buttonText?: string;
-  isLoading?: boolean;
+  isPending?: boolean;
   disableMobileButton?: boolean;
   "data-testid"?: string;
   color?: ButtonColor;
@@ -40,14 +41,13 @@ export type CreateBtnProps = {
 export function CreateButton(props: CreateBtnProps) {
   const { t } = useLocale();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useCompatSearchParams();
   const pathname = usePathname();
-  const bookerUrl = useBookerUrl();
 
   const {
     createDialog,
     options,
-    isLoading,
+    isPending,
     createFunction,
     buttonText,
     disableMobileButton,
@@ -57,6 +57,7 @@ export function CreateButton(props: CreateBtnProps) {
   const CreateDialog = createDialog ? createDialog() : null;
 
   const hasTeams = !!options.find((option) => option.teamId);
+  const platform = !!options.find((option) => option.platform);
 
   // inject selection data into url for correct router history
   const openModal = (option: Option) => {
@@ -75,7 +76,7 @@ export function CreateButton(props: CreateBtnProps) {
 
   return (
     <>
-      {!hasTeams ? (
+      {!hasTeams && !platform ? (
         <Button
           onClick={() =>
             !!CreateDialog
@@ -86,7 +87,7 @@ export function CreateButton(props: CreateBtnProps) {
           }
           data-testid="create-button"
           StartIcon={Plus}
-          loading={isLoading}
+          loading={isPending}
           variant={disableMobileButton ? "button" : "fab"}
           {...restProps}>
           {buttonText ? buttonText : t("new")}
@@ -98,7 +99,7 @@ export function CreateButton(props: CreateBtnProps) {
               variant={disableMobileButton ? "button" : "fab"}
               StartIcon={Plus}
               data-testid="create-button-dropdown"
-              loading={isLoading}
+              loading={isPending}
               {...restProps}>
               {buttonText ? buttonText : t("new")}
             </Button>
@@ -113,18 +114,13 @@ export function CreateButton(props: CreateBtnProps) {
                   type="button"
                   data-testid={`option${option.teamId ? "-team" : ""}-${idx}`}
                   StartIcon={(props) => (
-                    <Avatar
-                      alt={option.label || ""}
-                      imageSrc={option.image || `${bookerUrl}/${option.label}/avatar.png`} // if no image, use default avatar
-                      size="sm"
-                      {...props}
-                    />
+                    <Avatar alt={option.label || ""} imageSrc={option.image} size="sm" {...props} />
                   )}
                   onClick={() =>
                     !!CreateDialog
                       ? openModal(option)
                       : createFunction
-                      ? createFunction(option.teamId || undefined)
+                      ? createFunction(option.teamId || undefined, option.platform)
                       : null
                   }>
                   {" "}
