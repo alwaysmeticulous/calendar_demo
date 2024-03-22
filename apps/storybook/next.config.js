@@ -19,7 +19,6 @@ const nextConfig = {
     "@calcom/emails",
     "@calcom/trpc",
     "@calcom/embed-core",
-    "@calcom/embed-react",
     "@calcom/features",
     "@calcom/lib",
     "@calcom/prisma",

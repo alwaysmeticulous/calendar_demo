@@ -50,13 +50,6 @@
       "problemMatcher": []
     },
     {
-      "label": "Embed React(3101)",
-      "type": "shell",
-      "command": "cd packages/embeds/embed-react && yarn dev",
-      "isBackground": false,
-      "problemMatcher": []
-    },
-    {
       "label": "Prisma Studio(5555)",
       "type": "shell",
       "command": "yarn db-studio",

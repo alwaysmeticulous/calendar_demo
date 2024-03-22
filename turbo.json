@@ -175,10 +175,6 @@
       "inputs": ["../../app-store/**/**"],
       "outputs": ["../../app-store/apps.server.generated.ts", "../../app-store/apps.browser.generated.tsx"]
     },
-    "@calcom/embed-react#type-check": {
-      "dependsOn": ["@calcom/embed-core#build", "@calcom/embed-snippet#build"],
-      "outputs": ["dist/**", "build/**"]
-    },
     "@calcom/embed-core#build": {
       "cache": false,
       "outputs": ["../../../apps/web/public/embed/**"],

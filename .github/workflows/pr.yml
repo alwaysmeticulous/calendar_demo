@@ -84,13 +84,6 @@ jobs:
     uses: ./.github/workflows/e2e-embed.yml
     secrets: inherit
 
-  e2e-embed-react:
-    name: E2E React embeds tests
-    needs: [changes, lint, build]
-    if: ${{ needs.changes.outputs.has-files-requiring-all-checks == 'true' }}
-    uses: ./.github/workflows/e2e-embed-react.yml
-    secrets: inherit
-
   analyze:
     name: Analyze Build
     needs: [changes, build]
@@ -99,7 +92,7 @@ jobs:
     secrets: inherit
 
   required:
-    needs: [changes, lint, type-check, test, build, e2e, e2e-embed, e2e-embed-react, e2e-app-store]
+    needs: [changes, lint, type-check, test, build, e2e, e2e-embed, e2e-app-store]
     if: always()
     runs-on: buildjet-4vcpu-ubuntu-2204
     steps:

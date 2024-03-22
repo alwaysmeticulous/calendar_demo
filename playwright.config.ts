@@ -21,7 +21,6 @@ const DEFAULT_TEST_TIMEOUT = process.env.CI ? 60000 : 240000;
 const headless = !!process.env.CI || !!process.env.PLAYWRIGHT_HEADLESS;
 
 const IS_EMBED_TEST = process.argv.some((a) => a.startsWith("--project=@calcom/embed-core"));
-const IS_EMBED_REACT_TEST = process.argv.some((a) => a.startsWith("--project=@calcom/embed-react"));
 
 const webServer: PlaywrightTestConfig["webServer"] = [
   {
@@ -39,17 +38,6 @@ if (IS_EMBED_TEST) {
   webServer.push({
     command: "yarn workspace @calcom/embed-core dev",
     port: 3100,
-    timeout: 60_000,
-    reuseExistingServer: !process.env.CI,
-  });
-}
-
-if (IS_EMBED_REACT_TEST) {
-  ensureAppServerIsReadyToServeEmbed(webServer[0]);
-
-  webServer.push({
-    command: "yarn workspace @calcom/embed-react dev",
-    port: 3101,
     timeout: 60_000,
     reuseExistingServer: !process.env.CI,
   });
@@ -116,18 +104,6 @@ const config: PlaywrightTestConfig = {
         ...devices["Desktop Chrome"],
         locale: "en-US",
         baseURL: "http://localhost:3100/",
-      },
-    },
-    {
-      name: "@calcom/embed-react",
-      testDir: "./packages/embeds/embed-react/",
-      expect: {
-        timeout: DEFAULT_EXPECT_TIMEOUT,
-      },
-      testMatch: /.*\.e2e\.tsx?/,
-      use: {
-        ...DEFAULT_CHROMIUM,
-        baseURL: "http://localhost:3101/",
       },
     },
     {

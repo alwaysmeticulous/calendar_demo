@@ -177,7 +177,6 @@ const nextConfig = {
     "@calcom/dayjs",
     "@calcom/emails",
     "@calcom/embed-core",
-    "@calcom/embed-react",
     "@calcom/embed-snippet",
     "@calcom/features",
     "@calcom/lib",

@@ -8,8 +8,7 @@
     "declaration": true,
     "outDir": "dist",
     "paths": {
-      "@calcom/embed-core": ["../embed-core/src"],
-      "@calcom/embed-react": ["../embed-react/src"]
+      "@calcom/embed-core": ["../embed-core/src"]
     }
   },
   "include": ["."],
