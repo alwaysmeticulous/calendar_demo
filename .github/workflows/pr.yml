@@ -22,23 +22,13 @@ jobs:
     uses: ./.github/workflows/lint.yml
     secrets: inherit
 
-  build:
-    name: Production build
-    uses: ./.github/workflows/production-build.yml
-    secrets: inherit
-
-  build-api-v1:
-    name: Production build
-    uses: ./.github/workflows/api-v1-production-build.yml
-    secrets: inherit
-
-  build-without-database:
-    name: Production build (without database)
-    uses: ./.github/workflows/production-build-without-database.yml
+  meticulous-test:
+    name: Meticulous test
+    uses: ./.github/workflows/meituclous-test.yml
     secrets: inherit
 
   required:
-    needs: [lint, type-check, build, build-api-v1]
+    needs: [lint, type-check, meticulous-test]
     if: always()
     runs-on: ubuntu-latest
     steps:
