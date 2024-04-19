@@ -5,8 +5,6 @@ import type { DocumentContext, DocumentProps } from "next/document";
 import Document, { Head, Html, Main, NextScript } from "next/document";
 import { z } from "zod";
 
-import { IS_PRODUCTION } from "@calcom/lib/constants";
-
 import { csp } from "@lib/csp";
 
 type Props = Record<string, unknown> & DocumentProps & { newLocale: string };
@@ -79,7 +77,7 @@ class MyDocument extends Document<Props> {
           <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F9FAFC" />
           <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1F1F1F" />
           {/* Meticulous recorder snippet */}
-          {process.env.NEXT_PUBLIC_ENABLE_METICULOUS==="1" && (
+          {process.env.NEXT_PUBLIC_ENABLE_METICULOUS === "1" && (
             // eslint-disable-next-line @next/next/no-sync-scripts
             <script
               data-project-id="Uysg3yxOBXBaTw71L7qC2VphddDrHALASFyqI9cO"
