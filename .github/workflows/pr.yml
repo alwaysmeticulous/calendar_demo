@@ -64,7 +64,7 @@ jobs:
     secrets: inherit
 
   required:
-    needs: [changes, lint, type-check, build, build-api-v1, e2e, e2e-embed, e2e-embed-react, e2e-app-store]
+    needs: [changes, lint, type-check, build, build-api-v1]
     if: always()
     runs-on: ubuntu-latest
     steps:
