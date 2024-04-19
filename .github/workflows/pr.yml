@@ -12,62 +12,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-latest-8-cores
-    permissions:
-      pull-requests: read
-    outputs:
-      has-files-requiring-all-checks: ${{ steps.filter.outputs.has-files-requiring-all-checks }}
-    steps:
-      - uses: actions/checkout@v3
-      - uses: ./.github/actions/dangerous-git-checkout
-      - uses: dorny/paths-filter@v2
-        id: filter
-        with:
-          filters: |
-            has-files-requiring-all-checks:
-              - "!(**.md|.github/CODEOWNERS)"
   type-check:
     name: Type check
-    needs: [changes]
-    if: ${{ needs.changes.outputs.has-files-requiring-all-checks == 'true' }}
     uses: ./.github/workflows/check-types.yml
     secrets: inherit
 
   lint:
     name: Linters
-    needs: [changes]
-    if: ${{ needs.changes.outputs.has-files-requiring-all-checks == 'true' }}
     uses: ./.github/workflows/lint.yml
     secrets: inherit
 
   build:
     name: Production build
-    needs: [changes]
-    if: ${{ needs.changes.outputs.has-files-requiring-all-checks == 'true' }}
     uses: ./.github/workflows/production-build.yml
     secrets: inherit
 
   build-api-v1:
     name: Production build
-    needs: [changes]
-    if: ${{ needs.changes.outputs.has-files-requiring-all-checks == 'true' }}
     uses: ./.github/workflows/api-v1-production-build.yml
     secrets: inherit
 
   build-without-database:
     name: Production build (without database)
-    needs: [changes]
-    if: ${{ needs.changes.outputs.has-files-requiring-all-checks == 'true' }}
     uses: ./.github/workflows/production-build-without-database.yml
     secrets: inherit
 
   required:
-    needs: [changes, lint, type-check, build, build-api-v1]
+    needs: [lint, type-check, build, build-api-v1]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: fail if conditional jobs failed
-        if: needs.changes.outputs.has-files-requiring-all-checks == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped') || contains(needs.*.result, 'cancelled'))
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped') || contains(needs.*.result, 'cancelled')
         run: exit 1
