@@ -25,6 +25,15 @@ jobs:
     name: Meticulous test
     runs-on: ubuntu-latest-16-cores
     timeout-minutes: 30
+    env:
+      ALLOWED_HOSTNAMES: ${{ vars.CI_ALLOWED_HOSTNAMES }}
+      CALENDSO_ENCRYPTION_KEY: ${{ secrets.CI_CALENDSO_ENCRYPTION_KEY }}
+      DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+      DATABASE_DIRECT_URL: ${{ secrets.CI_DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.CI_NEXTAUTH_SECRET }}
+      NEXTAUTH_URL: ${{ secrets.CI_NEXTAUTH_URL }}
+      NEXT_PUBLIC_SKIP_BATCH: ${{ secrets.CI_NEXT_PUBLIC_SKIP_BATCH }}
+      NEXT_PUBLIC_API_V2_URL: ${{ secrets.CI_NEXT_PUBLIC_API_V2_URL }}
     steps:
       - uses: actions/checkout@v3
         with:
