@@ -1,11 +1,10 @@
-name: PR Update
+name: PR
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-  merge_group:
-  workflow_dispatch:
+  pull_request: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -24,14 +23,19 @@ jobs:
 
   meticulous-test:
     name: Meticulous test
-    uses: ./.github/workflows/meituclous-test.yml
-    secrets: inherit
-
-  required:
-    needs: [lint, type-check, meticulous-test]
-    if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-16-cores
+    timeout-minutes: 30
     steps:
-      - name: fail if conditional jobs failed
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped') || contains(needs.*.result, 'cancelled')
-        run: exit 1
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 2 # Makes turbo cache checking faster, since can use commit history rather than having to hash files
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/cache-build
+      - run: |
+          yarn workspace @calcom/web start &
+          sleep 5
+      - name: Run Meticulous tests
+        uses: alwaysmeticulous/report-diffs-action/cloud-compute@v1
+        with:
+          api-token: ${{ secrets.METICULOUS_API_TOKEN }}
+          app-url: "http://localhost:3000"
