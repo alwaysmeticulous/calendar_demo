@@ -25,25 +25,6 @@ jobs:
     name: Meticulous test
     runs-on: ubuntu-latest-16-cores
     timeout-minutes: 30
-    # Service containers to run with `runner-job`
-    services:
-      # Label used to access the service container
-      postgres:
-        # Docker Hub image
-        image: postgres
-        # Provide the password for postgres
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: cal
-        # Set health checks to wait until postgres has started
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          # Maps tcp port 5432 on service container to the host
-          - 5432:5432
     env:
       ALLOWED_HOSTNAMES: ${{ vars.CI_ALLOWED_HOSTNAMES }}
       CALENDSO_ENCRYPTION_KEY: ${{ secrets.CI_CALENDSO_ENCRYPTION_KEY }}
@@ -53,6 +34,20 @@ jobs:
       NEXTAUTH_URL: ${{ secrets.CI_NEXTAUTH_URL }}
       NEXT_PUBLIC_SKIP_BATCH: ${{ secrets.CI_NEXT_PUBLIC_SKIP_BATCH }}
       NEXT_PUBLIC_API_V2_URL: ${{ secrets.CI_NEXT_PUBLIC_API_V2_URL }}
+    services:
+      postgres:
+        # Docker Hub image
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cal
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v3
         with:
