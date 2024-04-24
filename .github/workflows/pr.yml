@@ -63,7 +63,7 @@ jobs:
         with:
           limit-access-to-actor: true
       - name: Run Meticulous tests
-        uses: alwaysmeticulous/report-diffs-action@v1
+        uses: alwaysmeticulous/report-diffs-action/cloud-compute@v1
         with:
           api-token: ${{ secrets.METICULOUS_API_TOKEN }}
           app-url: "http://localhost:3000"
