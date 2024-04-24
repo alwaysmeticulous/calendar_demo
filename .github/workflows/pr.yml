@@ -55,6 +55,7 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - uses: ./.github/actions/cache-build
       - run: |
+          export NODE_OPTIONS="--max_old_space_size=8192"
           yarn workspace @calcom/web start &
           sleep 5
       - name: Run Meticulous tests
