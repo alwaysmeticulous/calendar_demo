@@ -53,10 +53,6 @@ jobs:
         with:
           fetch-depth: 2 # Makes turbo cache checking faster, since can use commit history rather than having to hash files
       - uses: ./.github/actions/yarn-install
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
-        with:
-          limit-access-to-users: alexivanov
       - uses: ./.github/actions/cache-build
       - run: |
           yarn workspace @calcom/web start &
