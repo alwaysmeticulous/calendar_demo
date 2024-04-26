@@ -54,8 +54,6 @@ jobs:
           fetch-depth: 2 # Makes turbo cache checking faster, since can use commit history rather than having to hash files
       - uses: ./.github/actions/yarn-install
       - uses: ./.github/actions/cache-build
-      - name: tune linux network
-        run: sudo ethtool -K eth0 tx off rx off
       - run: |
           export NODE_OPTIONS="--max_old_space_size=8192"
           yarn workspace @calcom/web start &
