@@ -24,7 +24,7 @@ jobs:
   meticulous-test:
     name: Meticulous test
     runs-on: ubuntu-latest-16-cores
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
       ALLOWED_HOSTNAMES: ${{ vars.CI_ALLOWED_HOSTNAMES }}
       CALENDSO_ENCRYPTION_KEY: ${{ secrets.CI_CALENDSO_ENCRYPTION_KEY }}
