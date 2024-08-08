@@ -2,7 +2,10 @@
 name: empty-commit
 on:
   schedule:
-    - cron:  '0 3 * * *'
+    - cron: '10 3 * * 5'
+  push:
+    paths:
+      - .github/workflows/empty-commit.yml
 jobs:
   empty_commit:
     runs-on: ubuntu-latest
