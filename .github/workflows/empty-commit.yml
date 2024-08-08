@@ -1,0 +1,19 @@
+# We push an empty commit once a week to keep this project active in Meticulous
+name: empty-commit
+on:
+  schedule:
+    - cron:  '0 3 * * *'
+jobs:
+  empty_commit:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+    - run: git config user.email "eng@meticulous.ai"
+    - run: git config user.name "Meticulous Engineering"
+    - name: Create Empty Commit
+      run: git commit --allow-empty -m "Empty commit to keep demo project active"
+    - name: Push Empty Commit
+      run: git push origin main
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
