@@ -7,6 +7,7 @@ import { trpc } from "@calcom/trpc/react";
 import {
   Button,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogFooter,
   DialogTrigger,
@@ -81,7 +82,11 @@ export function NewScheduleButton({
             placeholder={t("default_schedule_name")}
             {...register("name")}
           />
-          <DialogFooter>Test</DialogFooter>
+          <DialogFooter>
+            <div>
+              <DialogClose />
+            </div>
+          </DialogFooter>
         </Form>
       </DialogContent>
     </Dialog>
