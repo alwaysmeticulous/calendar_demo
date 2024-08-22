@@ -72,7 +72,7 @@ export function NewScheduleButton({
         <Form
           form={form}
           handleSubmit={(values) => {
-            console.log(values);
+            createMutation.mutate(values);
           }}>
           <InputField
             label={t("name")}
@@ -84,9 +84,6 @@ export function NewScheduleButton({
           />
           <DialogFooter>
             <DialogClose />
-            <Button type="submit" loading={createMutation.isPending}>
-              {t("continue")}
-            </Button>
           </DialogFooter>
         </Form>
       </DialogContent>
