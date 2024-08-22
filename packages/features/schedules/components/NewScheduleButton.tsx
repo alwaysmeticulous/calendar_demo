@@ -72,7 +72,7 @@ export function NewScheduleButton({
         <Form
           form={form}
           handleSubmit={(values) => {
-            createMutation.mutate(values);
+            console.log(values);
           }}>
           <InputField
             label={t("name")}
