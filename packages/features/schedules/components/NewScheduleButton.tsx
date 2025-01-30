@@ -83,10 +83,9 @@ export function NewScheduleButton({
             {...register("name")}
           />
           <DialogFooter>
-            <DialogClose />
-            <Button type="submit" loading={createMutation.isPending}>
-              {t("continue")}
-            </Button>
+            <div>
+              <DialogClose />
+            </div>
           </DialogFooter>
         </Form>
       </DialogContent>
